@@ -1,9 +1,16 @@
+import { Redis } from '@upstash/redis';
 import { GameState, PlayerName, Card } from './types';
 import { createShuffledDeck } from './deck';
 import { evaluateHand, compareHands } from './evaluator';
 
-const STARTING_CHIPS = 500;
+const STARTING_CHIPS = 1000;
 const ANTE = 5;
+const GAME_KEY = 'avic:game';
+
+const redis = new Redis({
+  url: process.env.KV_REST_API_URL!,
+  token: process.env.KV_REST_API_TOKEN!,
+});
 
 function opponent(name: PlayerName): PlayerName {
   return name === 'Aaron' ? 'Vicky' : 'Aaron';
@@ -28,35 +35,41 @@ function createInitialState(): GameState {
   };
 }
 
-// In-memory server state (single game, two players)
-let gameState: GameState = createInitialState();
-
-export function getState(): GameState {
-  return gameState;
+async function loadState(): Promise<GameState> {
+  const data = await redis.get<GameState>(GAME_KEY);
+  return data ?? createInitialState();
 }
 
-/** Return state filtered for a specific player — hide opponent's hole cards unless showdown */
-export function getStateForPlayer(player: PlayerName): GameState {
-  const s = { ...gameState, players: { ...gameState.players } };
-  const opp = opponent(player);
+async function saveState(state: GameState): Promise<void> {
+  await redis.set(GAME_KEY, state);
+}
 
-  if (s.phase !== 'showdown') {
-    s.players = {
-      ...s.players,
-      [opp]: { ...s.players[opp], holeCards: [] },
+export async function getState(): Promise<GameState> {
+  return loadState();
+}
+
+export async function getStateForPlayer(player: PlayerName): Promise<GameState> {
+  const gs = await loadState();
+  const opp = opponent(player);
+  const filtered = { ...gs, players: { ...gs.players }, deck: [] as Card[] };
+
+  if (filtered.phase !== 'showdown') {
+    filtered.players = {
+      ...filtered.players,
+      [opp]: { ...filtered.players[opp], holeCards: [] },
     };
   }
-  // Never send deck to client
-  return { ...s, deck: [] };
+  return filtered;
 }
 
-export function startHand(): GameState {
+export async function startHand(): Promise<GameState> {
+  const gs = await loadState();
   const deck = createShuffledDeck();
-  const newDealer = gameState.winner !== null ? opponent(gameState.dealer) : gameState.dealer;
+  const newDealer = gs.winner !== null ? opponent(gs.dealer) : gs.dealer;
 
   const players = {
-    Aaron: { ...gameState.players.Aaron, currentBet: 0, status: 'playing' as const, holeCards: [] as Card[] },
-    Vicky: { ...gameState.players.Vicky, currentBet: 0, status: 'playing' as const, holeCards: [] as Card[] },
+    Aaron: { ...gs.players.Aaron, currentBet: 0, status: 'playing' as const, holeCards: [] as Card[] },
+    Vicky: { ...gs.players.Vicky, currentBet: 0, status: 'playing' as const, holeCards: [] as Card[] },
   };
 
   const aaronAnte = Math.min(ANTE, players.Aaron.chips);
@@ -67,8 +80,8 @@ export function startHand(): GameState {
   players.Aaron.holeCards = [deck.pop()!, deck.pop()!];
   players.Vicky.holeCards = [deck.pop()!, deck.pop()!];
 
-  gameState = {
-    ...gameState,
+  const newState: GameState = {
+    ...gs,
     phase: 'pre-flop',
     pot: aaronAnte + vickyAnte,
     boardCards: [],
@@ -81,179 +94,160 @@ export function startHand(): GameState {
     phaseRaised: false,
     actionsThisPhase: 0,
   };
-  return gameState;
+  await saveState(newState);
+  return newState;
 }
 
-export function doAction(player: PlayerName, action: string, amount?: number): { ok: boolean; error?: string } {
-  if (gameState.phase === 'showdown' && action !== 'start') {
+export async function doAction(player: PlayerName, action: string, amount?: number): Promise<{ ok: boolean; error?: string }> {
+  const gs = await loadState();
+
+  if (gs.phase === 'showdown' && action !== 'start') {
     return { ok: false, error: 'Hand is over' };
   }
   if (action === 'start') {
-    startHand();
+    await startHand();
     return { ok: true };
   }
-  if (gameState.turn !== player) {
+  if (gs.turn !== player) {
     return { ok: false, error: 'Not your turn' };
   }
-  if (gameState.players[player].status !== 'playing') {
+  if (gs.players[player].status !== 'playing') {
     return { ok: false, error: 'Cannot act' };
   }
 
+  let result: { ok: boolean; error?: string };
   switch (action) {
-    case 'check': return doCheck(player);
-    case 'call': return doCall(player);
-    case 'fold': return doFold(player);
-    case 'raise': return doRaise(player, amount ?? 10);
+    case 'check': result = doCheck(gs, player); break;
+    case 'call': result = doCall(gs, player); break;
+    case 'fold': result = doFold(gs, player); break;
+    case 'raise': result = doRaise(gs, player, amount ?? 10); break;
     default: return { ok: false, error: 'Unknown action' };
   }
+
+  if (result.ok) await saveState(gs);
+  return result;
 }
 
-function doCheck(player: PlayerName): { ok: boolean; error?: string } {
+function doCheck(gs: GameState, player: PlayerName): { ok: boolean; error?: string } {
   const opp = opponent(player);
-  if (gameState.players[opp].currentBet > gameState.players[player].currentBet) {
+  if (gs.players[opp].currentBet > gs.players[player].currentBet) {
     return { ok: false, error: 'Cannot check, must call or fold' };
   }
-
-  const newActions = gameState.actionsThisPhase + 1;
-  gameState = { ...gameState, turn: opp, actionsThisPhase: newActions };
-
-  if (newActions >= 2) advancePhase();
+  gs.actionsThisPhase += 1;
+  gs.turn = opp;
+  if (gs.actionsThisPhase >= 2) advancePhase(gs);
   return { ok: true };
 }
 
-function doCall(player: PlayerName): { ok: boolean; error?: string } {
+function doCall(gs: GameState, player: PlayerName): { ok: boolean; error?: string } {
   const opp = opponent(player);
-  const p = { ...gameState.players[player] };
-  const toCall = Math.min(gameState.players[opp].currentBet - p.currentBet, p.chips);
-  p.chips -= toCall;
-  p.currentBet += toCall;
-  if (p.chips === 0) p.status = 'all-in';
+  const toCall = Math.min(gs.players[opp].currentBet - gs.players[player].currentBet, gs.players[player].chips);
+  gs.players[player] = { ...gs.players[player] };
+  gs.players[player].chips -= toCall;
+  gs.players[player].currentBet += toCall;
+  if (gs.players[player].chips === 0) gs.players[player].status = 'all-in';
+  gs.pot += toCall;
+  gs.actionsThisPhase += 1;
 
-  gameState = {
-    ...gameState,
-    players: { ...gameState.players, [player]: p },
-    pot: gameState.pot + toCall,
-    actionsThisPhase: gameState.actionsThisPhase + 1,
-  };
-
-  if (gameState.players.Aaron.status === 'all-in' && gameState.players.Vicky.status === 'all-in') {
-    runOutBoard();
+  if (gs.players.Aaron.status === 'all-in' && gs.players.Vicky.status === 'all-in') {
+    runOutBoard(gs);
   } else {
-    advancePhase();
+    advancePhase(gs);
   }
   return { ok: true };
 }
 
-function doFold(player: PlayerName): { ok: boolean; error?: string } {
-  const p = { ...gameState.players[player] };
-  p.status = 'folded';
+function doFold(gs: GameState, player: PlayerName): { ok: boolean; error?: string } {
+  gs.players[player] = { ...gs.players[player], status: 'folded' };
   const winnerName = opponent(player);
-  const w = { ...gameState.players[winnerName] };
-  w.chips += gameState.pot;
-
-  gameState = {
-    ...gameState,
-    players: { ...gameState.players, [player]: p, [winnerName]: w },
-    pot: 0,
-    winner: winnerName,
-    phase: 'showdown',
-  };
+  gs.players[winnerName] = { ...gs.players[winnerName], chips: gs.players[winnerName].chips + gs.pot };
+  gs.pot = 0;
+  gs.winner = winnerName;
+  gs.phase = 'showdown';
   return { ok: true };
 }
 
-function doRaise(player: PlayerName, amount: number): { ok: boolean; error?: string } {
-  if (gameState.phaseRaised) {
-    return { ok: false, error: 'Already raised this phase' };
-  }
+function doRaise(gs: GameState, player: PlayerName, amount: number): { ok: boolean; error?: string } {
+  if (gs.phaseRaised) return { ok: false, error: 'Already raised this phase' };
   const rounded = Math.round(amount / 5) * 5;
-  const p = { ...gameState.players[player] };
   const opp = opponent(player);
-  const toMatch = gameState.players[opp].currentBet - p.currentBet;
-  const total = Math.min(toMatch + rounded, p.chips);
-  p.chips -= total;
-  p.currentBet += total;
-  if (p.chips === 0) p.status = 'all-in';
-
-  gameState = {
-    ...gameState,
-    players: { ...gameState.players, [player]: p },
-    pot: gameState.pot + total,
-    turn: opp,
-    phaseRaised: true,
-    actionsThisPhase: gameState.actionsThisPhase + 1,
-  };
+  const toMatch = gs.players[opp].currentBet - gs.players[player].currentBet;
+  const total = Math.min(toMatch + rounded, gs.players[player].chips);
+  gs.players[player] = { ...gs.players[player] };
+  gs.players[player].chips -= total;
+  gs.players[player].currentBet += total;
+  if (gs.players[player].chips === 0) gs.players[player].status = 'all-in';
+  gs.pot += total;
+  gs.turn = opp;
+  gs.phaseRaised = true;
+  gs.actionsThisPhase += 1;
   return { ok: true };
 }
 
-function advancePhase() {
-  const { phase, deck, players, pot, dealer, boardCards } = gameState;
-  const newDeck = [...deck];
-  const newPlayers = {
-    Aaron: { ...players.Aaron, currentBet: 0 },
-    Vicky: { ...players.Vicky, currentBet: 0 },
-  };
-  const firstToAct = opponent(dealer);
-  const common = { deck: newDeck, players: newPlayers, turn: firstToAct, phaseRaised: false, actionsThisPhase: 0 };
+function advancePhase(gs: GameState) {
+  const newDeck = [...gs.deck];
+  gs.players.Aaron = { ...gs.players.Aaron, currentBet: 0 };
+  gs.players.Vicky = { ...gs.players.Vicky, currentBet: 0 };
+  gs.turn = opponent(gs.dealer);
+  gs.phaseRaised = false;
+  gs.actionsThisPhase = 0;
+  gs.deck = newDeck;
 
-  if (phase === 'pre-flop') {
-    gameState = { ...gameState, phase: 'flop', boardCards: [newDeck.pop()!, newDeck.pop()!, newDeck.pop()!], ...common };
-  } else if (phase === 'flop') {
-    gameState = { ...gameState, phase: 'turn', boardCards: [...boardCards, newDeck.pop()!], ...common };
-  } else if (phase === 'turn') {
-    gameState = { ...gameState, phase: 'river', boardCards: [...boardCards, newDeck.pop()!], ...common };
-  } else if (phase === 'river') {
-    resolveShowdown(pot, newPlayers);
+  if (gs.phase === 'pre-flop') {
+    gs.phase = 'flop';
+    gs.boardCards = [newDeck.pop()!, newDeck.pop()!, newDeck.pop()!];
+  } else if (gs.phase === 'flop') {
+    gs.phase = 'turn';
+    gs.boardCards = [...gs.boardCards, newDeck.pop()!];
+  } else if (gs.phase === 'turn') {
+    gs.phase = 'river';
+    gs.boardCards = [...gs.boardCards, newDeck.pop()!];
+  } else if (gs.phase === 'river') {
+    resolveShowdown(gs);
   }
 }
 
-function resolveShowdown(pot: number, newPlayers: GameState['players']) {
-  const hand1 = evaluateHand(gameState.players.Aaron.holeCards, gameState.boardCards);
-  const hand2 = evaluateHand(gameState.players.Vicky.holeCards, gameState.boardCards);
+function resolveShowdown(gs: GameState) {
+  const hand1 = evaluateHand(gs.players.Aaron.holeCards, gs.boardCards);
+  const hand2 = evaluateHand(gs.players.Vicky.holeCards, gs.boardCards);
   const result = compareHands(hand1, hand2);
 
-  let winner: PlayerName | 'split';
   if (result > 0) {
-    winner = 'Aaron';
-    newPlayers = { ...newPlayers, Aaron: { ...newPlayers.Aaron, chips: newPlayers.Aaron.chips + pot } };
+    gs.winner = 'Aaron';
+    gs.players.Aaron = { ...gs.players.Aaron, chips: gs.players.Aaron.chips + gs.pot };
   } else if (result < 0) {
-    winner = 'Vicky';
-    newPlayers = { ...newPlayers, Vicky: { ...newPlayers.Vicky, chips: newPlayers.Vicky.chips + pot } };
+    gs.winner = 'Vicky';
+    gs.players.Vicky = { ...gs.players.Vicky, chips: gs.players.Vicky.chips + gs.pot };
   } else {
-    winner = 'split';
-    newPlayers = {
-      ...newPlayers,
-      Aaron: { ...newPlayers.Aaron, chips: newPlayers.Aaron.chips + Math.floor(pot / 2) },
-      Vicky: { ...newPlayers.Vicky, chips: newPlayers.Vicky.chips + Math.ceil(pot / 2) },
-    };
+    gs.winner = 'split';
+    gs.players.Aaron = { ...gs.players.Aaron, chips: gs.players.Aaron.chips + Math.floor(gs.pot / 2) };
+    gs.players.Vicky = { ...gs.players.Vicky, chips: gs.players.Vicky.chips + Math.ceil(gs.pot / 2) };
   }
-
-  gameState = {
-    ...gameState,
-    phase: 'showdown',
-    players: newPlayers,
-    pot: 0,
-    winner,
-    handRank: { Aaron: hand1.rank, Vicky: hand2.rank },
-  };
+  gs.phase = 'showdown';
+  gs.pot = 0;
+  gs.handRank = { Aaron: hand1.rank, Vicky: hand2.rank };
 }
 
-function runOutBoard() {
-  const newDeck = [...gameState.deck];
-  const board = [...gameState.boardCards];
-  while (board.length < 5) board.push(newDeck.pop()!);
-
-  const newPlayers = {
-    Aaron: { ...gameState.players.Aaron, currentBet: 0 },
-    Vicky: { ...gameState.players.Vicky, currentBet: 0 },
-  };
-
-  gameState = { ...gameState, boardCards: board, deck: newDeck };
-  resolveShowdown(gameState.pot, newPlayers);
+function runOutBoard(gs: GameState) {
+  const newDeck = [...gs.deck];
+  while (gs.boardCards.length < 5) gs.boardCards.push(newDeck.pop()!);
+  gs.deck = newDeck;
+  gs.players.Aaron = { ...gs.players.Aaron, currentBet: 0 };
+  gs.players.Vicky = { ...gs.players.Vicky, currentBet: 0 };
+  resolveShowdown(gs);
 }
 
-export function resetGame(): GameState {
-  gameState = createInitialState();
-  return gameState;
+export async function endGame(): Promise<{ aaron: number; vicky: number }> {
+  const gs = await loadState();
+  const result = { aaron: gs.players.Aaron.chips, vicky: gs.players.Vicky.chips };
+  await redis.del(GAME_KEY);
+  return result;
+}
+
+export async function resetGame(): Promise<GameState> {
+  const state = createInitialState();
+  await saveState(state);
+  return state;
 }
 
 export { ANTE, STARTING_CHIPS };

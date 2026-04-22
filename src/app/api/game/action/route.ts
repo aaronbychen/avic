@@ -9,24 +9,21 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { player, action, amount } = body as { player: string; action: string; amount?: number };
 
-  // Validate player name
   if (player !== 'Aaron' && player !== 'Vicky') {
     return Response.json({ ok: false, error: 'Invalid player' }, { status: 400 });
   }
 
-  const result = doAction(player as PlayerName, action, amount);
+  const result = await doAction(player as PlayerName, action, amount);
   if (!result.ok) {
     return Response.json(result, { status: 400 });
   }
 
-  // Broadcast filtered state to each player
   const pusher = getPusherServer();
-  const fullState = getState();
+  const fullState = await getState();
 
   await Promise.all([
-    pusher.trigger('game-channel', 'state-aaron', getStateForPlayer('Aaron')),
-    pusher.trigger('game-channel', 'state-vicky', getStateForPlayer('Vicky')),
-    // If showdown, also send a combined event with both hands visible
+    pusher.trigger('game-channel', 'state-aaron', await getStateForPlayer('Aaron')),
+    pusher.trigger('game-channel', 'state-vicky', await getStateForPlayer('Vicky')),
     ...(fullState.phase === 'showdown'
       ? [pusher.trigger('game-channel', 'showdown', {
           players: fullState.players,

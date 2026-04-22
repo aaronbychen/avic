@@ -3,22 +3,23 @@ import { GameState, PlayerName } from './types';
 import { getPusherClient } from './pusher-client';
 import type { Channel } from 'pusher-js';
 
-const STARTING_CHIPS = 500;
+const STARTING_CHIPS = 1000;
+
+interface EndResult {
+  aaron: number;
+  vicky: number;
+}
 
 interface GameStore {
-  // Identity
   me: PlayerName | null;
   setMe: (name: PlayerName) => void;
-
-  // Game state (from server)
   state: GameState;
   connected: boolean;
+  gameEnded: EndResult | null;
 
-  // Actions (call API)
   sendAction: (action: string, amount?: number) => Promise<void>;
+  endGame: () => Promise<void>;
   fetchState: () => Promise<void>;
-
-  // Pusher
   subscribe: () => void;
   unsubscribe: () => void;
 }
@@ -48,6 +49,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   me: null,
   state: emptyState(),
   connected: false,
+  gameEnded: null,
 
   setMe: (name) => set({ me: name }),
 
@@ -59,6 +61,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ player: me, action, amount }),
     });
+  },
+
+  endGame: async () => {
+    const res = await fetch('/api/game/end', { method: 'POST' });
+    if (res.ok) {
+      const result = await res.json();
+      set({ gameEnded: result });
+    }
   },
 
   fetchState: async () => {
@@ -84,11 +94,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set({ state: data, connected: true });
     });
 
-    // On showdown, update with full player data (both hands visible)
     channel.bind('showdown', (data: Partial<GameState>) => {
-      set((prev) => ({
-        state: { ...prev.state, ...data },
-      }));
+      set((prev) => ({ state: { ...prev.state, ...data } }));
+    });
+
+    channel.bind('game-ended', (data: EndResult) => {
+      set({ gameEnded: data });
     });
 
     channel.bind('pusher:subscription_succeeded', () => {

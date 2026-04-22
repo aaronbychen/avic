@@ -11,5 +11,6 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: 'Invalid player' }, { status: 400 });
   }
 
-  return Response.json(getStateForPlayer(player as PlayerName));
+  const state = await getStateForPlayer(player as PlayerName);
+  return Response.json(state);
 }

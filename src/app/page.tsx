@@ -19,16 +19,14 @@ export default function Home() {
 
 function Game() {
   const searchParams = useSearchParams();
-  const { me, setMe, state, sendAction, subscribe, unsubscribe, fetchState } = useGameStore();
+  const { me, setMe, state, sendAction, endGame, gameEnded, subscribe, unsubscribe, fetchState } = useGameStore();
 
-  // Identity lock from URL
   useEffect(() => {
     const u = searchParams.get('u')?.toLowerCase();
     if (u === 'aaron') setMe('Aaron');
     else if (u === 'vicky') setMe('Vicky');
   }, [searchParams, setMe]);
 
-  // Subscribe to Pusher once identity is set
   useEffect(() => {
     if (!me) return;
     subscribe();
@@ -38,7 +36,6 @@ function Game() {
 
   const { phase, pot, boardCards, turn, players, dealer, winner, handRank } = state;
 
-  // No identity — show picker
   if (!me) {
     return (
       <div className="flex flex-col flex-1 items-center justify-center min-h-screen gap-6">
@@ -48,11 +45,51 @@ function Game() {
     );
   }
 
+  // Game ended — show final results
+  if (gameEnded) {
+    const aaronWon = gameEnded.aaron > gameEnded.vicky;
+    const vickyWon = gameEnded.vicky > gameEnded.aaron;
+    const tie = gameEnded.aaron === gameEnded.vicky;
+    return (
+      <div className="flex flex-col flex-1 items-center justify-center min-h-screen gap-8 px-4">
+        <h1 className="text-sm font-semibold tracking-[0.3em] uppercase text-gray-500">AVIC</h1>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex flex-col items-center gap-6 p-8 rounded-2xl border border-white/[0.06] bg-white/[0.02]"
+        >
+          <h2 className="text-2xl font-bold text-[#d4af37]">
+            {tie ? 'Tie Game!' : `${aaronWon ? 'Aaron' : 'Vicky'} Wins!`}
+          </h2>
+          <div className="flex gap-12">
+            <div className="text-center">
+              <div className={`text-3xl font-bold tabular-nums ${aaronWon ? 'text-[#d4af37]' : 'text-gray-400'}`}>
+                {gameEnded.aaron}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">Aaron</div>
+            </div>
+            <div className="text-center">
+              <div className={`text-3xl font-bold tabular-nums ${vickyWon ? 'text-[#d4af37]' : 'text-gray-400'}`}>
+                {gameEnded.vicky}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">Vicky</div>
+            </div>
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-8 py-3 rounded-xl bg-[#d4af37] text-black font-semibold tracking-wide hover:bg-[#e5c04b] transition-colors"
+          >
+            New Game
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
   const isShowdown = phase === 'showdown';
   const isPlaying = !isShowdown && players[me].holeCards.length > 0;
   const isMyTurn = turn === me;
   const opponentName = me === 'Aaron' ? 'Vicky' : 'Aaron';
-
   const topPlayer: PlayerName = me === 'Aaron' ? 'Vicky' : 'Aaron';
   const bottomPlayer: PlayerName = me;
 
@@ -60,7 +97,15 @@ function Game() {
     <div className="flex flex-col flex-1 items-center justify-between min-h-screen py-8 px-4 relative">
       {/* Header */}
       <div className="text-center mb-2">
-        <h1 className="text-sm font-semibold tracking-[0.3em] uppercase text-gray-500">AVIC</h1>
+        <div className="flex items-center justify-center gap-4">
+          <h1 className="text-sm font-semibold tracking-[0.3em] uppercase text-gray-500">AVIC</h1>
+          <button
+            onClick={endGame}
+            className="text-[10px] uppercase tracking-wider text-gray-600 hover:text-red-400 transition-colors"
+          >
+            End Game
+          </button>
+        </div>
         {isPlaying && (
           <p className="text-xs text-gray-600 mt-1 uppercase tracking-wider">{phase}</p>
         )}
@@ -105,7 +150,6 @@ function Game() {
           )}
         </div>
 
-        {/* Showdown Result */}
         <AnimatePresence>
           {isShowdown && winner && (
             <motion.div
@@ -136,10 +180,8 @@ function Game() {
           isDealer={dealer === bottomPlayer}
         />
 
-        {/* Actions — only when it's my turn */}
         {isPlaying && isMyTurn && <ActionBar />}
 
-        {/* Waiting overlay */}
         {isPlaying && !isMyTurn && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -151,7 +193,6 @@ function Game() {
           </motion.div>
         )}
 
-        {/* Start / Next Hand */}
         {(!isPlaying || isShowdown) && (
           <motion.button
             whileHover={{ scale: 1.02 }}
