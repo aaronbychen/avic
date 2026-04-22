@@ -5,34 +5,34 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/lib/store';
 
 export function ActionBar() {
-  const { turn, players, phase, phaseRaised, check, call, fold, raise } = useGameStore();
+  const { me, state, sendAction } = useGameStore();
   const [showRaise, setShowRaise] = useState(false);
   const [raiseAmount, setRaiseAmount] = useState(10);
 
-  const current = players[turn];
-  const opp = players[turn === 'Aaron' ? 'Vicky' : 'Aaron'];
+  if (!me) return null;
+
+  const current = state.players[me];
+  const oppName = me === 'Aaron' ? 'Vicky' : 'Aaron';
+  const opp = state.players[oppName];
   const toCall = opp.currentBet - current.currentBet;
   const canCheck = toCall === 0;
-  const disabled = phase === 'showdown' || current.status !== 'playing';
 
   const handleRaise = () => {
-    raise(raiseAmount);
+    sendAction('raise', raiseAmount);
     setShowRaise(false);
     setRaiseAmount(10);
   };
-
-  if (disabled) return null;
 
   return (
     <div className="flex flex-col items-center gap-3">
       <div className="flex gap-3">
         {canCheck ? (
-          <ActionButton onClick={check} label="Check" variant="default" />
+          <ActionButton onClick={() => sendAction('check')} label="Check" variant="default" />
         ) : (
-          <ActionButton onClick={call} label={`Call ${toCall}`} variant="default" />
+          <ActionButton onClick={() => sendAction('call')} label={`Call ${toCall}`} variant="default" />
         )}
-        <ActionButton onClick={fold} label="Fold" variant="danger" />
-        {!phaseRaised && (
+        <ActionButton onClick={() => sendAction('fold')} label="Fold" variant="danger" />
+        {!state.phaseRaised && (
           <ActionButton onClick={() => setShowRaise(!showRaise)} label="Raise" variant="accent" />
         )}
       </div>
