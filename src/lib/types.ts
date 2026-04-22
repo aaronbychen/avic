@@ -27,6 +27,8 @@ export interface GameState {
   dealer: PlayerName;
   winner: PlayerName | 'split' | null;
   handRank: Record<PlayerName, string> | null;
+  phaseRaised: boolean;
+  actionsThisPhase: number;
 }
 
 export type HandRank =
@@ -43,6 +45,6 @@ export type HandRank =
 
 export interface EvaluatedHand {
   rank: HandRank;
-  value: number; // numeric score for comparison
-  cards: Card[]; // best 5 cards
+  value: number;
+  cards: Card[];
 }

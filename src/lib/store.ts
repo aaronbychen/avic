@@ -3,9 +3,8 @@ import { GameState, PlayerName, Card } from './types';
 import { createShuffledDeck } from './deck';
 import { evaluateHand, compareHands } from './evaluator';
 
-const STARTING_CHIPS = 1000;
-const SMALL_BLIND = 10;
-const BIG_BLIND = 20;
+const STARTING_CHIPS = 500;
+const ANTE = 5;
 
 function createInitialPlayers() {
   return {
@@ -14,19 +13,18 @@ function createInitialPlayers() {
   };
 }
 
+function opponent(name: PlayerName): PlayerName {
+  return name === 'Aaron' ? 'Vicky' : 'Aaron';
+}
+
 interface GameStore extends GameState {
   startHand: () => void;
-  bet: (amount: number) => void;
+  raise: (amount: number) => void;
   call: () => void;
   check: () => void;
   fold: () => void;
-  allIn: () => void;
   nextPhase: () => void;
   resetGame: () => void;
-}
-
-function opponent(name: PlayerName): PlayerName {
-  return name === 'Aaron' ? 'Vicky' : 'Aaron';
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -39,26 +37,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
   dealer: 'Aaron',
   winner: null,
   handRank: null,
+  phaseRaised: false,
+  actionsThisPhase: 0,
 
   startHand: () => {
     const state = get();
     const deck = createShuffledDeck();
-    const dealer = state.dealer;
-    const sb = dealer; // heads-up: dealer posts small blind
-    const bb = opponent(dealer);
+    const newDealer = state.winner !== null ? opponent(state.dealer) : state.dealer;
 
     const players = {
       Aaron: { ...state.players.Aaron, currentBet: 0, status: 'playing' as const, holeCards: [] as Card[] },
       Vicky: { ...state.players.Vicky, currentBet: 0, status: 'playing' as const, holeCards: [] as Card[] },
     };
 
-    // Post blinds
-    const sbAmount = Math.min(SMALL_BLIND, players[sb].chips);
-    const bbAmount = Math.min(BIG_BLIND, players[bb].chips);
-    players[sb].chips -= sbAmount;
-    players[sb].currentBet = sbAmount;
-    players[bb].chips -= bbAmount;
-    players[bb].currentBet = bbAmount;
+    // Post antes
+    const aaronAnte = Math.min(ANTE, players.Aaron.chips);
+    const vickyAnte = Math.min(ANTE, players.Vicky.chips);
+    players.Aaron.chips -= aaronAnte;
+    players.Vicky.chips -= vickyAnte;
 
     // Deal hole cards
     players.Aaron.holeCards = [deck.pop()!, deck.pop()!];
@@ -66,33 +62,42 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     set({
       phase: 'pre-flop',
-      pot: sbAmount + bbAmount,
+      pot: aaronAnte + vickyAnte,
       boardCards: [],
-      turn: sb, // heads-up: SB/dealer acts first pre-flop
+      turn: newDealer, // dealer acts first pre-flop in heads-up
       players,
       deck,
+      dealer: newDealer,
       winner: null,
       handRank: null,
+      phaseRaised: false,
+      actionsThisPhase: 0,
     });
   },
 
-  bet: (amount: number) => {
-    const { turn, players, pot } = get();
+  raise: (amount: number) => {
+    const { turn, players, pot, actionsThisPhase } = get();
+    // Enforce multiples of 5
+    const rounded = Math.round(amount / 5) * 5;
     const player = { ...players[turn] };
-    const actual = Math.min(amount, player.chips);
-    player.chips -= actual;
-    player.currentBet += actual;
+    const opp = players[opponent(turn)];
+    const toMatch = opp.currentBet - player.currentBet;
+    const total = Math.min(toMatch + rounded, player.chips);
+    player.chips -= total;
+    player.currentBet += total;
     if (player.chips === 0) player.status = 'all-in';
 
     set({
       players: { ...players, [turn]: player },
-      pot: pot + actual,
+      pot: pot + total,
       turn: opponent(turn),
+      phaseRaised: true,
+      actionsThisPhase: actionsThisPhase + 1,
     });
   },
 
   call: () => {
-    const { turn, players, pot } = get();
+    const { turn, players, pot, actionsThisPhase } = get();
     const player = { ...players[turn] };
     const opp = players[opponent(turn)];
     const toCall = Math.min(opp.currentBet - player.currentBet, player.chips);
@@ -100,30 +105,29 @@ export const useGameStore = create<GameStore>((set, get) => ({
     player.currentBet += toCall;
     if (player.chips === 0) player.status = 'all-in';
 
-    const newState: Partial<GameStore> = {
+    set({
       players: { ...players, [turn]: player },
       pot: pot + toCall,
-    };
+      actionsThisPhase: actionsThisPhase + 1,
+    });
 
-    set(newState);
-    // After call, advance phase
-    get().nextPhase();
+    // Both all-in → run out all boards then showdown
+    const s = get();
+    if (s.players.Aaron.status === 'all-in' && s.players.Vicky.status === 'all-in') {
+      runOutBoard(get, set);
+    } else {
+      get().nextPhase();
+    }
   },
 
   check: () => {
-    const { turn, players, phase } = get();
-    const opp = players[opponent(turn)];
+    const { turn, actionsThisPhase } = get();
+    const newActions = actionsThisPhase + 1;
+    set({ turn: opponent(turn), actionsThisPhase: newActions });
 
-    // If both checked (or BB checks pre-flop), advance
-    if (phase === 'pre-flop' && turn === opponent(get().dealer)) {
-      // BB checking pre-flop advances
-      set({ turn: opponent(turn) });
+    // Both players have acted (2 checks) → advance
+    if (newActions >= 2) {
       get().nextPhase();
-    } else if (opp.currentBet === players[turn].currentBet) {
-      set({ turn: opponent(turn) });
-      // If we just switched and the previous player also checked, nextPhase will be called on their check
-    } else {
-      set({ turn: opponent(turn) });
     }
   },
 
@@ -132,7 +136,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const player = { ...players[turn] };
     player.status = 'folded';
     const winnerName = opponent(turn);
-
     const winnerPlayer = { ...players[winnerName] };
     winnerPlayer.chips += pot;
 
@@ -144,71 +147,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  allIn: () => {
-    const { turn, players, pot } = get();
-    const player = { ...players[turn] };
-    const amount = player.chips;
-    player.chips = 0;
-    player.currentBet += amount;
-    player.status = 'all-in';
-
-    set({
-      players: { ...players, [turn]: player },
-      pot: pot + amount,
-      turn: opponent(turn),
-    });
-  },
-
   nextPhase: () => {
     const state = get();
-    const { phase, deck, players, pot, dealer } = state;
+    const { phase, deck, players, pot, dealer, boardCards } = state;
     const newDeck = [...deck];
-
-    // Reset bets for new street
     const newPlayers = {
       Aaron: { ...players.Aaron, currentBet: 0 },
       Vicky: { ...players.Vicky, currentBet: 0 },
     };
-
-    // Post-flop: non-dealer acts first
     const firstToAct = opponent(dealer);
 
+    const common = { deck: newDeck, players: newPlayers, turn: firstToAct, phaseRaised: false, actionsThisPhase: 0 };
+
     if (phase === 'pre-flop') {
-      const flop = [newDeck.pop()!, newDeck.pop()!, newDeck.pop()!];
-      set({ phase: 'flop', boardCards: flop, deck: newDeck, players: newPlayers, turn: firstToAct });
+      set({ phase: 'flop', boardCards: [newDeck.pop()!, newDeck.pop()!, newDeck.pop()!], ...common });
     } else if (phase === 'flop') {
-      const turnCard = newDeck.pop()!;
-      set({ phase: 'turn', boardCards: [...state.boardCards, turnCard], deck: newDeck, players: newPlayers, turn: firstToAct });
+      set({ phase: 'turn', boardCards: [...boardCards, newDeck.pop()!], ...common });
     } else if (phase === 'turn') {
-      const riverCard = newDeck.pop()!;
-      set({ phase: 'river', boardCards: [...state.boardCards, riverCard], deck: newDeck, players: newPlayers, turn: firstToAct });
+      set({ phase: 'river', boardCards: [...boardCards, newDeck.pop()!], ...common });
     } else if (phase === 'river') {
-      // Showdown
-      const hand1 = evaluateHand(players.Aaron.holeCards, state.boardCards);
-      const hand2 = evaluateHand(players.Vicky.holeCards, state.boardCards);
-      const result = compareHands(hand1, hand2);
-
-      let winner: PlayerName | 'split';
-      if (result > 0) {
-        winner = 'Aaron';
-        newPlayers.Aaron.chips += pot;
-      } else if (result < 0) {
-        winner = 'Vicky';
-        newPlayers.Vicky.chips += pot;
-      } else {
-        winner = 'split';
-        newPlayers.Aaron.chips += Math.floor(pot / 2);
-        newPlayers.Vicky.chips += Math.ceil(pot / 2);
-      }
-
-      set({
-        phase: 'showdown',
-        players: newPlayers,
-        pot: 0,
-        winner,
-        handRank: { Aaron: hand1.rank, Vicky: hand2.rank },
-        dealer: opponent(dealer),
-      });
+      resolveShowdown(players, boardCards, pot, newPlayers, dealer, set);
     }
   },
 
@@ -223,6 +181,66 @@ export const useGameStore = create<GameStore>((set, get) => ({
       dealer: 'Aaron',
       winner: null,
       handRank: null,
+      phaseRaised: false,
+      actionsThisPhase: 0,
     });
   },
 }));
+
+function resolveShowdown(
+  players: GameState['players'],
+  boardCards: Card[],
+  pot: number,
+  newPlayers: GameState['players'],
+  dealer: PlayerName,
+  set: (s: Partial<GameStore>) => void,
+) {
+  const hand1 = evaluateHand(players.Aaron.holeCards, boardCards);
+  const hand2 = evaluateHand(players.Vicky.holeCards, boardCards);
+  const result = compareHands(hand1, hand2);
+
+  let winner: PlayerName | 'split';
+  if (result > 0) {
+    winner = 'Aaron';
+    newPlayers.Aaron = { ...newPlayers.Aaron, chips: newPlayers.Aaron.chips + pot };
+  } else if (result < 0) {
+    winner = 'Vicky';
+    newPlayers.Vicky = { ...newPlayers.Vicky, chips: newPlayers.Vicky.chips + pot };
+  } else {
+    winner = 'split';
+    newPlayers.Aaron = { ...newPlayers.Aaron, chips: newPlayers.Aaron.chips + Math.floor(pot / 2) };
+    newPlayers.Vicky = { ...newPlayers.Vicky, chips: newPlayers.Vicky.chips + Math.ceil(pot / 2) };
+  }
+
+  set({
+    phase: 'showdown',
+    players: newPlayers,
+    pot: 0,
+    winner,
+    handRank: { Aaron: hand1.rank, Vicky: hand2.rank },
+  });
+}
+
+function runOutBoard(
+  get: () => GameStore,
+  set: (s: Partial<GameStore>) => void,
+) {
+  const state = get();
+  const newDeck = [...state.deck];
+  let board = [...state.boardCards];
+
+  // Deal remaining community cards
+  while (board.length < 5) {
+    board.push(newDeck.pop()!);
+  }
+
+  const newPlayers = {
+    Aaron: { ...state.players.Aaron, currentBet: 0 },
+    Vicky: { ...state.players.Vicky, currentBet: 0 },
+  };
+
+  set({ boardCards: board, deck: newDeck });
+  resolveShowdown(state.players, board, state.pot, newPlayers, state.dealer, set);
+}
+
+export { ANTE, STARTING_CHIPS };
