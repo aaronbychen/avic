@@ -99,12 +99,14 @@ function Game() {
       <div className="text-center mb-2">
         <div className="flex items-center justify-center gap-4">
           <h1 className="text-sm font-semibold tracking-[0.3em] uppercase text-gray-500">AVIC</h1>
-          <button
-            onClick={endGame}
-            className="text-[10px] uppercase tracking-wider text-gray-600 hover:text-red-400 transition-colors"
-          >
-            End Game
-          </button>
+          {!isPlaying && (
+            <button
+              onClick={endGame}
+              className="text-[10px] uppercase tracking-wider text-gray-600 hover:text-red-400 transition-colors"
+            >
+              End Game
+            </button>
+          )}
         </div>
         {isPlaying && (
           <p className="text-xs text-gray-600 mt-1 uppercase tracking-wider">{phase}</p>

@@ -237,9 +237,13 @@ function runOutBoard(gs: GameState) {
   resolveShowdown(gs);
 }
 
-export async function endGame(): Promise<{ aaron: number; vicky: number }> {
+export async function endGame(): Promise<{ ok: boolean; aaron?: number; vicky?: number; error?: string }> {
   const gs = await loadState();
-  const result = { aaron: gs.players.Aaron.chips, vicky: gs.players.Vicky.chips };
+  const handActive = gs.phase !== 'showdown' && gs.players.Aaron.holeCards.length > 0;
+  if (handActive) {
+    return { ok: false, error: 'Cannot end game while a hand is in progress' };
+  }
+  const result = { ok: true, aaron: gs.players.Aaron.chips, vicky: gs.players.Vicky.chips };
   await redis.del(GAME_KEY);
   return result;
 }
