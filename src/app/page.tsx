@@ -37,10 +37,6 @@ function Game() {
   }, [me, subscribe, unsubscribe, fetchState]);
 
   const { phase, pot, boardCards, turn, players, dealer, winner, handRank } = state;
-  const isPlaying = phase !== 'showdown' && players.Aaron.holeCards.length > 0;
-  const isShowdown = phase === 'showdown';
-  const isMyTurn = me !== null && turn === me;
-  const opponentName = me === 'Aaron' ? 'Vicky' : 'Aaron';
 
   // No identity — show picker
   if (!me) {
@@ -51,6 +47,11 @@ function Game() {
       </div>
     );
   }
+
+  const isShowdown = phase === 'showdown';
+  const isPlaying = !isShowdown && players[me].holeCards.length > 0;
+  const isMyTurn = turn === me;
+  const opponentName = me === 'Aaron' ? 'Vicky' : 'Aaron';
 
   const topPlayer: PlayerName = me === 'Aaron' ? 'Vicky' : 'Aaron';
   const bottomPlayer: PlayerName = me;
