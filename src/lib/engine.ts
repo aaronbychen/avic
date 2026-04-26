@@ -39,7 +39,14 @@ function createInitialState(): GameState {
 
 async function loadState(): Promise<GameState> {
   const data = await redis.get<GameState>(GAME_KEY);
-  return data ?? createInitialState();
+  if (!data) return createInitialState();
+  // Backfill fields added after initial deploy
+  return {
+    ...createInitialState(),
+    ...data,
+    raiseCount: data.raiseCount ?? 0,
+    lastRaiseAmount: data.lastRaiseAmount ?? 0,
+  };
 }
 
 async function saveState(state: GameState): Promise<void> {
