@@ -42,6 +42,7 @@ function emptyState(): GameState {
     raiseCount: 0,
     lastRaiseAmount: 0,
     actionsThisPhase: 0,
+    gameOver: false,
   };
 }
 

@@ -31,6 +31,7 @@ export interface GameState {
   raiseCount: number;
   lastRaiseAmount: number;
   actionsThisPhase: number;
+  gameOver: boolean;
 }
 
 export type HandRank =

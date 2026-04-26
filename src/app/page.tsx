@@ -86,6 +86,43 @@ function Game() {
     );
   }
 
+  // Auto game-over when a player is busted
+  if (state.gameOver) {
+    const a = state.players.Aaron.chips;
+    const v = state.players.Vicky.chips;
+    const busiedPlayer = a <= 0 ? 'Aaron' : 'Vicky';
+    const champion = a <= 0 ? 'Vicky' : 'Aaron';
+    return (
+      <div className="flex flex-col flex-1 items-center justify-center min-h-screen gap-8 px-4">
+        <h1 className="text-sm font-semibold tracking-[0.3em] uppercase text-gray-500">AVIC</h1>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex flex-col items-center gap-6 p-8 rounded-2xl border border-white/[0.06] bg-white/[0.02]"
+        >
+          <h2 className="text-2xl font-bold text-[#d4af37]">{champion} Wins!</h2>
+          <p className="text-sm text-gray-400">{busiedPlayer} is out of chips</p>
+          <div className="flex gap-12">
+            <div className="text-center">
+              <div className={`text-3xl font-bold tabular-nums ${a > v ? 'text-[#d4af37]' : 'text-gray-400'}`}>{a}</div>
+              <div className="text-xs text-gray-500 mt-1">Aaron</div>
+            </div>
+            <div className="text-center">
+              <div className={`text-3xl font-bold tabular-nums ${v > a ? 'text-[#d4af37]' : 'text-gray-400'}`}>{v}</div>
+              <div className="text-xs text-gray-500 mt-1">Vicky</div>
+            </div>
+          </div>
+          <button
+            onClick={async () => { await endGame(); window.location.reload(); }}
+            className="px-8 py-3 rounded-xl bg-[#d4af37] text-black font-semibold tracking-wide hover:bg-[#e5c04b] transition-colors"
+          >
+            New Game
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
   const isShowdown = phase === 'showdown';
   const isPlaying = !isShowdown && players[me].holeCards.length > 0;
   const isMyTurn = turn === me;

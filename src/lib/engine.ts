@@ -34,6 +34,7 @@ function createInitialState(): GameState {
     raiseCount: 0,
     lastRaiseAmount: 0,
     actionsThisPhase: 0,
+    gameOver: false,
   };
 }
 
@@ -97,6 +98,7 @@ export async function startHand(): Promise<GameState> {
     raiseCount: 0,
     lastRaiseAmount: 0,
     actionsThisPhase: 0,
+    gameOver: false,
   };
   await saveState(newState);
   return newState;
@@ -105,6 +107,9 @@ export async function startHand(): Promise<GameState> {
 export async function doAction(player: PlayerName, action: string, amount?: number): Promise<{ ok: boolean; error?: string }> {
   const gs = await loadState();
 
+  if (gs.gameOver) {
+    return { ok: false, error: 'Game is over' };
+  }
   if (gs.phase === 'showdown' && action !== 'start') {
     return { ok: false, error: 'Hand is over' };
   }
@@ -165,6 +170,9 @@ function doFold(gs: GameState, player: PlayerName): { ok: boolean; error?: strin
   gs.pot = 0;
   gs.winner = winnerName;
   gs.phase = 'showdown';
+  if (gs.players.Aaron.chips <= 0 || gs.players.Vicky.chips <= 0) {
+    gs.gameOver = true;
+  }
   return { ok: true };
 }
 
@@ -241,6 +249,9 @@ function resolveShowdown(gs: GameState) {
   gs.phase = 'showdown';
   gs.pot = 0;
   gs.handRank = { Aaron: hand1.rank, Vicky: hand2.rank };
+  if (gs.players.Aaron.chips <= 0 || gs.players.Vicky.chips <= 0) {
+    gs.gameOver = true;
+  }
 }
 
 function runOutBoard(gs: GameState) {
