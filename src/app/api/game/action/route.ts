@@ -24,7 +24,9 @@ export async function POST(req: NextRequest) {
   await Promise.all([
     pusher.trigger('game-channel', 'state-aaron', await getStateForPlayer('Aaron')),
     pusher.trigger('game-channel', 'state-vicky', await getStateForPlayer('Vicky')),
-    ...(fullState.phase === 'showdown'
+    ...(fullState.phase === 'showdown' &&
+        fullState.players.Aaron.status !== 'folded' &&
+        fullState.players.Vicky.status !== 'folded'
       ? [pusher.trigger('game-channel', 'showdown', {
           players: fullState.players,
           winner: fullState.winner,

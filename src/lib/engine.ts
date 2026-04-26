@@ -62,6 +62,13 @@ export async function getStateForPlayer(player: PlayerName): Promise<GameState> 
       [opp]: { ...filtered.players[opp], holeCards: [] },
     };
   }
+  // If someone folded, don't reveal the winner's hand
+  if (filtered.players[opp].status === 'folded' || filtered.players[player].status === 'folded') {
+    filtered.players = {
+      ...filtered.players,
+      [opp]: { ...filtered.players[opp], holeCards: [] },
+    };
+  }
   return filtered;
 }
 
