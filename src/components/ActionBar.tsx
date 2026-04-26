@@ -16,9 +16,10 @@ export function ActionBar() {
   const opp = state.players[oppName];
   const toCall = opp.currentBet - current.currentBet;
   const canCheck = toCall === 0;
+  const halfChips = Math.round(current.chips / 2 / 5) * 5 || 5;
 
-  const handleRaise = () => {
-    sendAction('raise', raiseAmount);
+  const handleRaise = (amount: number) => {
+    sendAction('raise', amount);
     setShowRaise(false);
     setRaiseAmount(10);
   };
@@ -31,10 +32,10 @@ export function ActionBar() {
         ) : (
           <ActionButton onClick={() => sendAction('call')} label={`Call ${toCall}`} variant="default" />
         )}
-        <ActionButton onClick={() => sendAction('fold')} label="Fold" variant="danger" />
         {!state.phaseRaised && (
           <ActionButton onClick={() => setShowRaise(!showRaise)} label="Raise" variant="accent" />
         )}
+        <ActionButton onClick={() => sendAction('fold')} label="Fold" variant="danger" />
       </div>
 
       <AnimatePresence>
@@ -43,31 +44,49 @@ export function ActionBar() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="flex items-center gap-3"
+            className="flex flex-col items-center gap-3"
           >
-            <button
-              onClick={() => setRaiseAmount(Math.max(5, raiseAmount - 5))}
-              className="w-8 h-8 rounded-full bg-white/10 text-gray-300 hover:bg-white/20 transition-colors"
-              aria-label="Decrease raise"
-            >
-              −
-            </button>
-            <span className="text-xl font-bold tabular-nums text-[#d4af37] w-16 text-center">
-              {raiseAmount}
-            </span>
-            <button
-              onClick={() => setRaiseAmount(Math.min(current.chips, raiseAmount + 5))}
-              className="w-8 h-8 rounded-full bg-white/10 text-gray-300 hover:bg-white/20 transition-colors"
-              aria-label="Increase raise"
-            >
-              +
-            </button>
-            <button
-              onClick={handleRaise}
-              className="px-4 py-1.5 rounded-lg bg-[#d4af37] text-black text-sm font-semibold hover:bg-[#e5c04b] transition-colors"
-            >
-              Confirm
-            </button>
+            {/* Presets */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleRaise(halfChips)}
+                className="px-3 py-1.5 rounded-lg bg-white/10 text-xs font-semibold text-gray-300 hover:bg-white/20 transition-colors"
+              >
+                Half ({halfChips})
+              </button>
+              <button
+                onClick={() => handleRaise(current.chips)}
+                className="px-3 py-1.5 rounded-lg bg-red-500/10 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-colors"
+              >
+                All In ({current.chips})
+              </button>
+            </div>
+            {/* Fine-grained stepper */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setRaiseAmount(Math.max(5, raiseAmount - 5))}
+                className="w-8 h-8 rounded-full bg-white/10 text-gray-300 hover:bg-white/20 transition-colors"
+                aria-label="Decrease raise"
+              >
+                −
+              </button>
+              <span className="text-xl font-bold tabular-nums text-[#d4af37] w-16 text-center">
+                {raiseAmount}
+              </span>
+              <button
+                onClick={() => setRaiseAmount(Math.min(current.chips, raiseAmount + 5))}
+                className="w-8 h-8 rounded-full bg-white/10 text-gray-300 hover:bg-white/20 transition-colors"
+                aria-label="Increase raise"
+              >
+                +
+              </button>
+              <button
+                onClick={() => handleRaise(raiseAmount)}
+                className="px-4 py-1.5 rounded-lg bg-[#d4af37] text-black text-sm font-semibold hover:bg-[#e5c04b] transition-colors"
+              >
+                Confirm
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
