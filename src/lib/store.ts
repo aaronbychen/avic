@@ -58,13 +58,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
   sendAction: async (action, amount) => {
     const { me } = get();
     if (!me) return;
-    const res = await fetch('/api/game/action', {
+    await fetch('/api/game/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ player: me, action, amount }),
     });
-    // Fetch latest state to stay in sync regardless of Pusher timing
-    if (res.ok) await get().fetchState();
   },
 
   endGame: async () => {
