@@ -49,13 +49,13 @@ export function ActionBar() {
             {/* Presets */}
             <div className="flex gap-2">
               <button
-                onClick={() => handleRaise(halfChips)}
+                onClick={() => setRaiseAmount(halfChips)}
                 className="px-3 py-1.5 rounded-lg bg-white/10 text-xs font-semibold text-gray-300 hover:bg-white/20 transition-colors"
               >
                 Half ({halfChips})
               </button>
               <button
-                onClick={() => handleRaise(current.chips)}
+                onClick={() => setRaiseAmount(current.chips)}
                 className="px-3 py-1.5 rounded-lg bg-red-500/10 text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-colors"
               >
                 All In ({current.chips})
