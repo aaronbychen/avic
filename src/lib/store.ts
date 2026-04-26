@@ -39,6 +39,8 @@ function emptyState(): GameState {
     winner: null,
     handRank: null,
     phaseRaised: false,
+    raiseCount: 0,
+    lastRaiseAmount: 0,
     actionsThisPhase: 0,
   };
 }

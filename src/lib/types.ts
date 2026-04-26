@@ -28,6 +28,8 @@ export interface GameState {
   winner: PlayerName | 'split' | null;
   handRank: Record<PlayerName, string> | null;
   phaseRaised: boolean;
+  raiseCount: number;
+  lastRaiseAmount: number;
   actionsThisPhase: number;
 }
 

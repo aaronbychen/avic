@@ -16,13 +16,17 @@ export function ActionBar() {
   const opp = state.players[oppName];
   const toCall = opp.currentBet - current.currentBet;
   const canCheck = toCall === 0;
-  const halfChips = Math.round(current.chips / 2 / 5) * 5 || 5;
+  const canRaise = state.raiseCount < 2 && current.chips > toCall;
+  const minRaise = Math.max(state.lastRaiseAmount, 5);
+  const halfChips = Math.max(minRaise, Math.round(current.chips / 2 / 5) * 5 || 5);
 
   const handleRaise = (amount: number) => {
     sendAction('raise', amount);
     setShowRaise(false);
-    setRaiseAmount(10);
+    setRaiseAmount(minRaise);
   };
+
+  const clampRaise = (v: number) => Math.max(minRaise, Math.min(current.chips, v));
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -32,8 +36,8 @@ export function ActionBar() {
         ) : (
           <ActionButton onClick={() => sendAction('call')} label={`Call ${toCall}`} variant="default" />
         )}
-        {!state.phaseRaised && (
-          <ActionButton onClick={() => setShowRaise(!showRaise)} label="Raise" variant="accent" />
+        {canRaise && (
+          <ActionButton onClick={() => { setRaiseAmount(minRaise); setShowRaise(!showRaise); }} label={state.raiseCount > 0 ? 'Re-Raise' : 'Raise'} variant="accent" />
         )}
         <ActionButton onClick={() => sendAction('fold')} label="Fold" variant="danger" />
       </div>
@@ -46,7 +50,9 @@ export function ActionBar() {
             exit={{ opacity: 0, y: -10 }}
             className="flex flex-col items-center gap-3"
           >
-            {/* Presets */}
+            {minRaise > 5 && (
+              <p className="text-[10px] text-gray-500">Min raise: {minRaise}</p>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={() => setRaiseAmount(halfChips)}
@@ -61,10 +67,9 @@ export function ActionBar() {
                 All In ({current.chips})
               </button>
             </div>
-            {/* Fine-grained stepper */}
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setRaiseAmount(Math.max(5, raiseAmount - 5))}
+                onClick={() => setRaiseAmount(clampRaise(raiseAmount - 5))}
                 className="w-8 h-8 rounded-full bg-white/10 text-gray-300 hover:bg-white/20 transition-colors"
                 aria-label="Decrease raise"
               >
@@ -74,7 +79,7 @@ export function ActionBar() {
                 {raiseAmount}
               </span>
               <button
-                onClick={() => setRaiseAmount(Math.min(current.chips, raiseAmount + 5))}
+                onClick={() => setRaiseAmount(clampRaise(raiseAmount + 5))}
                 className="w-8 h-8 rounded-full bg-white/10 text-gray-300 hover:bg-white/20 transition-colors"
                 aria-label="Increase raise"
               >

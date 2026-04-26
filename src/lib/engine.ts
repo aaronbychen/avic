@@ -31,6 +31,8 @@ function createInitialState(): GameState {
     winner: null,
     handRank: null,
     phaseRaised: false,
+    raiseCount: 0,
+    lastRaiseAmount: 0,
     actionsThisPhase: 0,
   };
 }
@@ -92,6 +94,8 @@ export async function startHand(): Promise<GameState> {
     winner: null,
     handRank: null,
     phaseRaised: false,
+    raiseCount: 0,
+    lastRaiseAmount: 0,
     actionsThisPhase: 0,
   };
   await saveState(newState);
@@ -168,8 +172,11 @@ function doFold(gs: GameState, player: PlayerName): { ok: boolean; error?: strin
 }
 
 function doRaise(gs: GameState, player: PlayerName, amount: number): { ok: boolean; error?: string } {
-  if (gs.phaseRaised) return { ok: false, error: 'Already raised this phase' };
+  if (gs.raiseCount >= 2) return { ok: false, error: 'Max raises reached this phase' };
   const rounded = Math.round(amount / 5) * 5;
+  if (gs.lastRaiseAmount > 0 && rounded < gs.lastRaiseAmount) {
+    return { ok: false, error: `Must raise at least ${gs.lastRaiseAmount}` };
+  }
   const opp = opponent(player);
   const toMatch = gs.players[opp].currentBet - gs.players[player].currentBet;
   const total = Math.min(toMatch + rounded, gs.players[player].chips);
@@ -180,6 +187,8 @@ function doRaise(gs: GameState, player: PlayerName, amount: number): { ok: boole
   gs.pot += total;
   gs.turn = opp;
   gs.phaseRaised = true;
+  gs.raiseCount += 1;
+  gs.lastRaiseAmount = rounded;
   gs.actionsThisPhase += 1;
   return { ok: true };
 }
@@ -190,6 +199,8 @@ function advancePhase(gs: GameState) {
   gs.players.Vicky = { ...gs.players.Vicky, currentBet: 0 };
   gs.turn = opponent(gs.dealer);
   gs.phaseRaised = false;
+  gs.raiseCount = 0;
+  gs.lastRaiseAmount = 0;
   gs.actionsThisPhase = 0;
   gs.deck = newDeck;
 
