@@ -153,11 +153,8 @@ function doCall(gs: GameState, player: PlayerName): { ok: boolean; error?: strin
   gs.pot += toCall;
   gs.actionsThisPhase += 1;
 
-  if (gs.players.Aaron.status === 'all-in' && gs.players.Vicky.status === 'all-in') {
-    runOutBoard(gs);
-  } else {
-    advancePhase(gs);
-  }
+  // After a call, always advance (the betting round is complete)
+  advancePhase(gs);
   return { ok: true };
 }
 
@@ -197,7 +194,6 @@ function advancePhase(gs: GameState) {
   const newDeck = [...gs.deck];
   gs.players.Aaron = { ...gs.players.Aaron, currentBet: 0 };
   gs.players.Vicky = { ...gs.players.Vicky, currentBet: 0 };
-  gs.turn = opponent(gs.dealer);
   gs.phaseRaised = false;
   gs.raiseCount = 0;
   gs.lastRaiseAmount = 0;
@@ -215,6 +211,14 @@ function advancePhase(gs: GameState) {
     gs.boardCards = [...gs.boardCards, newDeck.pop()!];
   } else if (gs.phase === 'river') {
     resolveShowdown(gs);
+    return;
+  }
+
+  // If either player is all-in, no more betting possible — run out the board
+  if (gs.players.Aaron.status === 'all-in' || gs.players.Vicky.status === 'all-in') {
+    runOutBoard(gs);
+  } else {
+    gs.turn = opponent(gs.dealer);
   }
 }
 
