@@ -23,6 +23,20 @@ function getCombinations(cards: Card[], k: number): Card[][] {
   return [...withFirst, ...withoutFirst];
 }
 
+/**
+ * Encode hand tier + up to 5 kickers into a single comparable integer.
+ * Uses base-15 positional encoding: tier gets the highest digit.
+ * Max value: 9*15^5 + 14*15^4 + ... ≈ 7.5M — safe for integer math.
+ */
+function score(tier: number, kickers: number[]): number {
+  let s = tier * 759375; // 15^5
+  const weights = [50625, 3375, 225, 15, 1]; // 15^4, 15^3, 15^2, 15^1, 15^0
+  for (let i = 0; i < kickers.length && i < 5; i++) {
+    s += kickers[i] * weights[i];
+  }
+  return s;
+}
+
 function evaluateFive(cards: Card[]): { rank: HandRank; value: number } {
   const sorted = [...cards].sort((a, b) => rankValue(b) - rankValue(a));
   const values = sorted.map(rankValue);
@@ -49,7 +63,7 @@ function evaluateFive(cards: Card[]): { rank: HandRank; value: number } {
     straightHigh = 5; // wheel: 5-high straight
   }
 
-  // Count ranks
+  // Count ranks, sort by count desc then value desc
   const counts: Record<number, number> = {};
   for (const v of values) counts[v] = (counts[v] || 0) + 1;
   const groups = Object.entries(counts)
@@ -58,42 +72,48 @@ function evaluateFive(cards: Card[]): { rank: HandRank; value: number } {
 
   const pattern = groups.map(g => g.count).join('');
 
-  // Compute numeric score: handTier * 10^10 + kickers
-  function score(tier: number, kickers: number[]): number {
-    let s = tier * 1e10;
-    for (let i = 0; i < kickers.length; i++) {
-      s += kickers[i] * Math.pow(15, 4 - i);
-    }
-    return s;
-  }
-
+  // Royal Flush / Straight Flush
   if (isFlush && isStraight) {
-    if (straightHigh === 14) {
-      return { rank: 'Royal Flush', value: score(9, [14]) };
-    }
+    if (straightHigh === 14) return { rank: 'Royal Flush', value: score(9, [14]) };
     return { rank: 'Straight Flush', value: score(8, [straightHigh]) };
   }
+
+  // Four of a Kind: [quads, kicker]
   if (pattern === '41') {
     return { rank: 'Four of a Kind', value: score(7, [groups[0].value, groups[1].value]) };
   }
+
+  // Full House: [trips, pair]
   if (pattern === '32') {
     return { rank: 'Full House', value: score(6, [groups[0].value, groups[1].value]) };
   }
+
+  // Flush: compare all 5 cards high to low
   if (isFlush) {
     return { rank: 'Flush', value: score(5, values) };
   }
+
+  // Straight: compare by high card only
   if (isStraight) {
     return { rank: 'Straight', value: score(4, [straightHigh]) };
   }
+
+  // Three of a Kind: [trips, kicker1, kicker2]
   if (pattern === '311') {
-    return { rank: 'Three of a Kind', value: score(3, groups.map(g => g.value)) };
+    return { rank: 'Three of a Kind', value: score(3, [groups[0].value, groups[1].value, groups[2].value]) };
   }
+
+  // Two Pair: [highPair, lowPair, kicker]
   if (pattern === '221') {
-    return { rank: 'Two Pair', value: score(2, groups.map(g => g.value)) };
+    return { rank: 'Two Pair', value: score(2, [groups[0].value, groups[1].value, groups[2].value]) };
   }
+
+  // One Pair: [pair, kicker1, kicker2, kicker3]
   if (pattern === '2111') {
-    return { rank: 'One Pair', value: score(1, groups.map(g => g.value)) };
+    return { rank: 'One Pair', value: score(1, [groups[0].value, groups[1].value, groups[2].value, groups[3].value]) };
   }
+
+  // High Card: all 5 cards
   return { rank: 'High Card', value: score(0, values) };
 }
 
