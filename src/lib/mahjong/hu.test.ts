@@ -140,3 +140,89 @@ describe('isPingHu', () => {
     expect(isPingHu(hand, [])).toBe(false);
   });
 });
+
+
+import { isDuiDuiHu, isQingYiSe, canHu, type CanHuResult } from './hu';
+import type { Meld } from './types';
+
+describe('isDuiDuiHu', () => {
+  it('accepts 4 triplets + pair', () => {
+    const hand = tiles('w1','w1','w1','p2','p2','p2','t5','t5','t5','t6','t6','t6','w9','w9');
+    expect(isDuiDuiHu(hand, [])).toBe(true);
+  });
+
+  it('rejects hand containing a run', () => {
+    const hand = tiles('w1','w1','w1','p2','p2','p2','t5','t6','t7','t6','t6','t6','w9','w9');
+    expect(isDuiDuiHu(hand, [])).toBe(false);
+  });
+
+  it('counts existing peng/gang melds as triplets', () => {
+    const meld: Meld = {
+      type: 'peng',
+      tiles: tiles('w3','w3','w3'),
+      fromSeat: 'south',
+    };
+    // need 3 more triplets + pair from 11 tiles
+    const hand = tiles('p2','p2','p2','t5','t5','t5','t6','t6','t6','w9','w9');
+    expect(isDuiDuiHu(hand, [meld])).toBe(true);
+  });
+});
+
+describe('isQingYiSe', () => {
+  it('accepts all-wan hand (with no melds)', () => {
+    const hand = tiles('w1','w1','w1','w2','w2','w2','w4','w5','w6','w7','w8','w9','w3','w3');
+    expect(isQingYiSe(hand, [])).toBe(true);
+  });
+
+  it('rejects mixed-suit hand', () => {
+    const hand = tiles('w1','w1','w1','p2','p2','p2','t5','t5','t5','t6','t6','t6','w9','w9');
+    expect(isQingYiSe(hand, [])).toBe(false);
+  });
+
+  it('considers melds when computing suit', () => {
+    const meld: Meld = {
+      type: 'peng',
+      tiles: tiles('p3','p3','p3'),
+      fromSeat: 'south',
+    };
+    const hand = tiles('w1','w1','w1','w4','w5','w6','w7','w7','w7','w9','w9');
+    expect(isQingYiSe(hand, [meld])).toBe(false); // hand is wan but meld is tong
+  });
+});
+
+describe('canHu (top-level)', () => {
+  it('returns ping-hu for a standard winning shape', () => {
+    const hand = tiles('w1','w2','w3','w4','w5','w6','p1','p2','p3','t7','t8','t9','t5','t5');
+    const r: CanHuResult = canHu(hand, [], null);
+    expect(r.canHu).toBe(true);
+    expect(r.winTypes).toContain('ping-hu');
+  });
+
+  it('returns multiple win types when stacked (清一色 + 对对胡)', () => {
+    const hand = tiles('w1','w1','w1','w2','w2','w2','w4','w4','w4','w7','w7','w7','w9','w9');
+    const r = canHu(hand, [], null);
+    expect(r.canHu).toBe(true);
+    expect(r.winTypes).toEqual(expect.arrayContaining(['ping-hu', 'dui-dui-hu', 'qing-yi-se']));
+  });
+
+  it('returns 七对 when applicable', () => {
+    const hand = tiles('w1','w1','w3','w3','p2','p2','p5','p5','t4','t4','t7','t7','t9','t9');
+    const r = canHu(hand, [], null);
+    expect(r.canHu).toBe(true);
+    expect(r.winTypes).toContain('qi-dui');
+    expect(r.winTypes).not.toContain('ping-hu');
+  });
+
+  it('rejects hu when hand contains a missing-suit tile', () => {
+    const hand = tiles('w1','w2','w3','w4','w5','w6','p1','p2','p3','t7','t8','t9','t5','t5');
+    const r = canHu(hand, [], 'tong');
+    expect(r.canHu).toBe(false);
+    expect(r.winTypes).toEqual([]);
+  });
+
+  it('returns canHu=false for non-winning hands', () => {
+    const hand = tiles('w1','w2','w4','w5','w6','w7','p1','p2','p3','t7','t8','t9','t5','t5');
+    const r = canHu(hand, [], null);
+    expect(r.canHu).toBe(false);
+  });
+});
