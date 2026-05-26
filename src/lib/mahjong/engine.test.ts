@@ -388,3 +388,161 @@ describe('claim window — peng', () => {
     expect(r.error).toBe('wrong-phase');
   });
 });
+
+
+import { declareGangAn, declareGangBu } from './engine';
+import type { TileValue } from './types';
+
+describe('claim window — 明杠', () => {
+  function setupForGangTest(): GameState {
+    let s = startedGame();
+    function strip(hand: Tile[]): Tile[] { return hand.filter(t => !(t.suit === 'wan' && t.value === 7)); }
+    s = JSON.parse(JSON.stringify(s)) as GameState;
+    s.seats.east.hand = strip(s.seats.east.hand);
+    s.seats.south.hand = strip(s.seats.south.hand);
+    s.seats.west.hand = strip(s.seats.west.hand);
+    s.seats.north.hand = strip(s.seats.north.hand);
+    s.wall = s.wall.filter(t => !(t.suit === 'wan' && t.value === 7));
+    while (s.seats.east.hand.length < 13 && s.wall.length > 0) s.seats.east.hand.push(s.wall.pop()!);
+    while (s.seats.south.hand.length < 10 && s.wall.length > 0) s.seats.south.hand.push(s.wall.pop()!);
+    while (s.seats.west.hand.length < 13 && s.wall.length > 0) s.seats.west.hand.push(s.wall.pop()!);
+    while (s.seats.north.hand.length < 13 && s.wall.length > 0) s.seats.north.hand.push(s.wall.pop()!);
+    s.seats.east.hand.push({ id: 'wan-7-4', suit: 'wan', value: 7 });
+    s.seats.south.hand.push(
+      { id: 'wan-7-1', suit: 'wan', value: 7 },
+      { id: 'wan-7-2', suit: 'wan', value: 7 },
+      { id: 'wan-7-3', suit: 'wan', value: 7 },
+    );
+    s.wallCount = s.wall.length;
+    return s;
+  }
+
+  it('opens claim window with gang option for south', () => {
+    let s = setupForGangTest();
+    s = discard(s, 'east', 'wan-7-4').state!;
+    expect(s.phase).toBe('claim-window');
+    const sthOpts = s.claimWindow!.options.filter(o => o.seat === 'south');
+    expect(sthOpts.find(o => o.type === 'gang')).toBeDefined();
+  });
+
+  it('south gangs — meld formed (4 tiles), south draws replacement, becomes turn', () => {
+    let s = setupForGangTest();
+    s = discard(s, 'east', 'wan-7-4').state!;
+    const wallBefore = s.wallCount;
+    const r = submitClaim(s, 'south', 'gang');
+    expect(r.ok).toBe(true);
+    s = r.state!;
+    expect(s.phase).toBe('playing');
+    expect(s.turn).toBe('south');
+    const meld = s.seats.south.melds[0];
+    expect(meld.type).toBe('gang-ming');
+    expect(meld.tiles.length).toBe(4);
+    expect(meld.fromSeat).toBe('east');
+    // East's discards no longer contain wan-7-4
+    expect(s.seats.east.discards.find(t => t.id === 'wan-7-4')).toBeUndefined();
+    // wall count decreased by 1 (replacement)
+    expect(s.wallCount).toBe(wallBefore - 1);
+  });
+});
+
+describe('declareGangAn — 暗杠', () => {
+  function setupForGangAn(): GameState {
+    let s = startedGame();
+    s = JSON.parse(JSON.stringify(s)) as GameState;
+    function strip(hand: Tile[]): Tile[] { return hand.filter(t => !(t.suit === 'tiao' && t.value === 9)); }
+    s.seats.east.hand = strip(s.seats.east.hand);
+    s.seats.south.hand = strip(s.seats.south.hand);
+    s.seats.west.hand = strip(s.seats.west.hand);
+    s.seats.north.hand = strip(s.seats.north.hand);
+    s.wall = s.wall.filter(t => !(t.suit === 'tiao' && t.value === 9));
+    // Truncate east to 10 so we can add exactly 4 nines for a known hand size
+    while (s.seats.east.hand.length > 10) s.wall.push(s.seats.east.hand.pop()!);
+    while (s.seats.east.hand.length < 10 && s.wall.length > 0) s.seats.east.hand.push(s.wall.pop()!);
+    while (s.seats.south.hand.length < 13 && s.wall.length > 0) s.seats.south.hand.push(s.wall.pop()!);
+    while (s.seats.west.hand.length < 13 && s.wall.length > 0) s.seats.west.hand.push(s.wall.pop()!);
+    while (s.seats.north.hand.length < 13 && s.wall.length > 0) s.seats.north.hand.push(s.wall.pop()!);
+    s.seats.east.hand.push(
+      { id: 'tiao-9-1', suit: 'tiao', value: 9 },
+      { id: 'tiao-9-2', suit: 'tiao', value: 9 },
+      { id: 'tiao-9-3', suit: 'tiao', value: 9 },
+      { id: 'tiao-9-4', suit: 'tiao', value: 9 },
+    );
+    s.wallCount = s.wall.length;
+    return s;
+  }
+
+  it('forms a gang-an meld and draws replacement; turn stays on east', () => {
+    let s = setupForGangAn();
+    const wallBefore = s.wallCount;
+    const r = declareGangAn(s, 'east', 'tiao', 9 as TileValue);
+    expect(r.ok).toBe(true);
+    s = r.state!;
+    expect(s.turn).toBe('east');
+    expect(s.phase).toBe('playing');
+    const meld = s.seats.east.melds[0];
+    expect(meld.type).toBe('gang-an');
+    expect(meld.tiles.length).toBe(4);
+    expect(meld.fromSeat).toBeNull();
+    expect(s.wallCount).toBe(wallBefore - 1);
+    // East's hand: had 14 (10 base + 4 nines), removed 4, drew 1 = 11
+    expect(s.seats.east.hand.length).toBe(11);
+    // None of the 4 nines remain in hand
+    expect(s.seats.east.hand.filter(t => t.suit === 'tiao' && t.value === 9).length).toBe(0);
+  });
+
+  it('rejects 暗杠 when not holding all 4 tiles', () => {
+    const s = startedGame();
+    const r = declareGangAn(s, 'east', 'tiao', 9 as TileValue);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('cannot-gang-an');
+  });
+
+  it('rejects 暗杠 when not your turn', () => {
+    const s = setupForGangAn();
+    const r = declareGangAn(s, 'south', 'tiao', 9 as TileValue);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('not-your-turn');
+  });
+});
+
+describe('declareGangBu — 补杠', () => {
+  it('upgrades an existing peng with the 4th tile drawn into hand', () => {
+    let s = startedGame();
+    s = JSON.parse(JSON.stringify(s)) as GameState;
+    // Manually plant a peng meld for east (3 of wan-2) and the 4th tile in east's hand.
+    s.seats.east.melds = [{
+      type: 'peng',
+      tiles: [
+        { id: 'wan-2-1', suit: 'wan', value: 2 },
+        { id: 'wan-2-2', suit: 'wan', value: 2 },
+        { id: 'wan-2-3', suit: 'wan', value: 2 },
+      ],
+      fromSeat: 'south',
+    }];
+    // Strip any wan-2 from east's hand so we can place the 4th cleanly.
+    s.seats.east.hand = s.seats.east.hand.filter(t => !(t.suit === 'wan' && t.value === 2));
+    while (s.seats.east.hand.length < 10 && s.wall.length > 0) s.seats.east.hand.push(s.wall.pop()!);
+    s.seats.east.hand.push({ id: 'wan-2-4', suit: 'wan', value: 2 });
+    s.wallCount = s.wall.length;
+
+    const wallBefore = s.wallCount;
+    const r = declareGangBu(s, 'east', 'wan-2-4');
+    expect(r.ok).toBe(true);
+    s = r.state!;
+
+    expect(s.seats.east.melds.length).toBe(1);
+    const meld = s.seats.east.melds[0];
+    expect(meld.type).toBe('gang-bu');
+    expect(meld.tiles.length).toBe(4);
+    expect(meld.tiles.map(t => t.id).sort()).toEqual(['wan-2-1','wan-2-2','wan-2-3','wan-2-4']);
+    expect(meld.fromSeat).toBe('south'); // preserved from original peng
+    expect(s.wallCount).toBe(wallBefore - 1);
+  });
+
+  it('rejects 补杠 when no matching peng exists', () => {
+    const s = startedGame();
+    const r = declareGangBu(s, 'east', s.seats.east.hand[0].id);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('no-matching-peng');
+  });
+});

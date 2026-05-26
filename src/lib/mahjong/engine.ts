@@ -167,7 +167,9 @@ export type Action =
   | { type: 'choose-missing'; seat: Seat; suit: Suit }
   | { type: 'discard'; seat: Seat; tileId: TileId }
   | { type: 'self-draw-hu'; seat: Seat }
-  | { type: 'claim'; seat: Seat; choice: 'peng' | 'gang' | 'hu' | 'pass' };
+  | { type: 'claim'; seat: Seat; choice: 'peng' | 'gang' | 'hu' | 'pass' }
+  | { type: 'gang-an'; seat: Seat; suit: Suit; value: import('./types').TileValue }
+  | { type: 'gang-bu'; seat: Seat; tileId: TileId };
 
 export function applyAction(state: GameState, action: Action): ActionResult {
   switch (action.type) {
@@ -176,6 +178,8 @@ export function applyAction(state: GameState, action: Action): ActionResult {
     case 'discard':        return discard(state, action.seat, action.tileId);
     case 'self-draw-hu':   return declareSelfDrawHu(state, action.seat);
     case 'claim':          return submitClaim(state, action.seat, action.choice);
+    case 'gang-an':        return declareGangAn(state, action.seat, action.suit, action.value);
+    case 'gang-bu':        return declareGangBu(state, action.seat, action.tileId);
     default: {
       const _: never = action;
       return { ok: false, error: 'unknown-action' };
@@ -326,8 +330,20 @@ export function submitClaim(
 function resolveClaimWindow(state: GameState): GameState {
   const cw = state.claimWindow!;
   const next = clone(state);
+
+  const huClaims = cw.decisions.filter(d => d.choice === 'hu');
+  const gangClaim = cw.decisions.find(d => d.choice === 'gang');
   const pengClaim = cw.decisions.find(d => d.choice === 'peng');
-  if (pengClaim) return resolvePeng(next, pengClaim.seat);
+
+  if (huClaims.length > 0) {
+    return next; // Task 11 implements
+  }
+  if (gangClaim) {
+    return resolveGangMing(next, gangClaim.seat);
+  }
+  if (pengClaim) {
+    return resolvePeng(next, pengClaim.seat);
+  }
   return resolveAllPass(next);
 }
 
@@ -354,6 +370,92 @@ function resolvePeng(state: GameState, seat: Seat): GameState {
   next.turn = seat;
   next.claimWindow = null;
   return next;
+}
+
+function resolveGangMing(state: GameState, seat: Seat): GameState {
+  const next = clone(state);
+  const cw = next.claimWindow!;
+  const tile = cw.discardedTile;
+
+  // Remove from discarder's discards
+  const di = next.seats[cw.fromSeat].discards.findIndex(t => t.id === tile.id);
+  if (di !== -1) next.seats[cw.fromSeat].discards.splice(di, 1);
+  next.lastDiscard = null;
+
+  // Take 3 matching tiles from claimer's hand
+  const hand = next.seats[seat].hand;
+  const taken: Tile[] = [];
+  for (let i = hand.length - 1; i >= 0 && taken.length < 3; i--) {
+    if (hand[i].suit === tile.suit && hand[i].value === tile.value) {
+      taken.push(...hand.splice(i, 1));
+    }
+  }
+  const meld: Meld = { type: 'gang-ming', tiles: [tile, ...taken], fromSeat: cw.fromSeat };
+  next.seats[seat].melds.push(meld);
+
+  next.phase = 'playing';
+  next.turn = seat;
+  next.claimWindow = null;
+  if (!drawTileFor(next, seat)) {
+    next.phase = 'settled';
+  }
+  checkTerminate(next);
+  return next;
+}
+
+export function declareGangAn(
+  state: GameState,
+  seat: Seat,
+  suit: Suit,
+  value: import('./types').TileValue,
+): ActionResult {
+  if (state.phase !== 'playing') return { ok: false, error: 'wrong-phase' };
+  if (state.turn !== seat) return { ok: false, error: 'not-your-turn' };
+  if (state.seats[seat].hasHu) return { ok: false, error: 'already-hu' };
+
+  const matches = state.seats[seat].hand.filter(t => t.suit === suit && t.value === value);
+  if (matches.length !== 4) return { ok: false, error: 'cannot-gang-an' };
+
+  const next = clone(state);
+  next.seats[seat].hand = next.seats[seat].hand.filter(t => !(t.suit === suit && t.value === value));
+  const meld: Meld = { type: 'gang-an', tiles: matches, fromSeat: null };
+  next.seats[seat].melds.push(meld);
+
+  if (!drawTileFor(next, seat)) {
+    next.phase = 'settled';
+  }
+  checkTerminate(next);
+  return { ok: true, state: bumpVersion(next) };
+}
+
+export function declareGangBu(state: GameState, seat: Seat, tileId: TileId): ActionResult {
+  if (state.phase !== 'playing') return { ok: false, error: 'wrong-phase' };
+  if (state.turn !== seat) return { ok: false, error: 'not-your-turn' };
+  if (state.seats[seat].hasHu) return { ok: false, error: 'already-hu' };
+
+  const handIdx = state.seats[seat].hand.findIndex(t => t.id === tileId);
+  if (handIdx === -1) return { ok: false, error: 'tile-not-in-hand' };
+  const tile = state.seats[seat].hand[handIdx];
+
+  const pengIdx = state.seats[seat].melds.findIndex(
+    m => m.type === 'peng' && m.tiles[0].suit === tile.suit && m.tiles[0].value === tile.value,
+  );
+  if (pengIdx === -1) return { ok: false, error: 'no-matching-peng' };
+
+  const next = clone(state);
+  const peng = next.seats[seat].melds[pengIdx];
+  next.seats[seat].hand.splice(handIdx, 1);
+  next.seats[seat].melds[pengIdx] = {
+    type: 'gang-bu',
+    tiles: [...peng.tiles, tile],
+    fromSeat: peng.fromSeat,
+  };
+
+  if (!drawTileFor(next, seat)) {
+    next.phase = 'settled';
+  }
+  checkTerminate(next);
+  return { ok: true, state: bumpVersion(next) };
 }
 
 function resolveAllPass(state: GameState): GameState {
