@@ -8,6 +8,7 @@ import { SeatPicker } from '@/components/mahjong/SeatPicker';
 import { ChooseMissing } from '@/components/mahjong/ChooseMissing';
 import { Table } from '@/components/mahjong/Table';
 import { SettlementPanel } from '@/components/mahjong/SettlementPanel';
+import { ForceResetButton } from '@/components/mahjong/ForceResetButton';
 
 export default function MahjongPage() {
   return (
@@ -78,6 +79,7 @@ function MahjongShell() {
   return (
     <>
       <RotatePrompt />
+      <ForceResetButton />
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#0a0a0a] text-gray-200">
         {state.phase === 'seat-selection' && <SeatPicker />}
         {state.phase === 'choose-missing' && mySeat && (

@@ -35,6 +35,7 @@ interface MahjongStore {
   sendAction: (action: Action) => Promise<void>;
   fetchState: () => Promise<void>;
   endGame: () => Promise<void>;
+  forceReset: () => Promise<void>;
   subscribe: () => void;
   unsubscribe: () => void;
 }
@@ -112,6 +113,15 @@ export const useMahjongStore = create<MahjongStore>((set, get) => ({
     if (res.ok) {
       const data = (await res.json()) as { finalScores: FinalScores };
       set({ gameEnded: data.finalScores });
+    }
+  },
+
+  forceReset: async () => {
+    // Bypasses hand-in-progress check; clears Redis state and pushes game-ended.
+    // Reload after to drop any stale local state and start fresh.
+    const res = await fetch('/api/mahjong/end?force=1', { method: 'POST' });
+    if (res.ok) {
+      window.location.reload();
     }
   },
 
