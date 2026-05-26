@@ -777,3 +777,37 @@ describe('tile conservation invariant', () => {
     }
   });
 });
+
+
+import { applyActionWithAI } from './engine';
+
+describe('driveAI integration', () => {
+  it('after Aaron picks a seat as Vicky picks, AI 定缺 fills 3 of 4 seats', () => {
+    let s = initialState();
+    let r = applyActionWithAI(s, { type: 'pick-seat', seat: 'east', human: 'Aaron' });
+    expect(r.ok).toBe(true);
+    s = r.state!;
+    r = applyActionWithAI(s, { type: 'pick-seat', seat: 'south', human: 'Vicky' });
+    expect(r.ok).toBe(true);
+    s = r.state!;
+    // Now in choose-missing; AI seats (west, north) should have auto-chosen.
+    expect(s.seats.west.missingSuit).not.toBeNull();
+    expect(s.seats.north.missingSuit).not.toBeNull();
+    // Aaron and Vicky have not chosen yet.
+    expect(s.seats.east.missingSuit).toBeNull();
+    expect(s.seats.south.missingSuit).toBeNull();
+    expect(s.phase).toBe('choose-missing');
+  });
+
+  it('after both humans 定缺, dealer AI draws & discards (or human turn arrives)', () => {
+    let s = initialState();
+    s = applyActionWithAI(s, { type: 'pick-seat', seat: 'east', human: 'Aaron' }).state!;
+    s = applyActionWithAI(s, { type: 'pick-seat', seat: 'south', human: 'Vicky' }).state!;
+    // east is dealer = human → after both humans 定缺, east starts. Stays human.
+    s = applyActionWithAI(s, { type: 'choose-missing', seat: 'east', suit: 'tong' }).state!;
+    s = applyActionWithAI(s, { type: 'choose-missing', seat: 'south', suit: 'tong' }).state!;
+    expect(s.phase).toBe('playing');
+    expect(s.turn).toBe('east'); // dealer human draws
+    expect(s.seats.east.hand.length).toBe(14); // dealer drew first
+  });
+});

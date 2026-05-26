@@ -5,6 +5,7 @@ import type {
   PlayerState,
   Suit,
   TileId,
+  TileValue,
   Tile,
   HuResult,
   WinType,
@@ -617,4 +618,119 @@ export function totalTilesInPlay(state: GameState): number {
     for (const m of state.seats[seat].melds) n += m.tiles.length;
   }
   return n;
+}
+
+import { decideClaim, decideMissingSuit, decideDiscardStub } from './ai';
+
+const MAX_DRIVE_AI_ITERATIONS = 50;
+
+export function driveAI(state: GameState): GameState {
+  let s = state;
+  for (let i = 0; i < MAX_DRIVE_AI_ITERATIONS; i++) {
+    // 1. AI 定缺 fill-in
+    if (s.phase === 'choose-missing') {
+      let progressed = false;
+      for (const seat of ALL_SEATS) {
+        if (s.seats[seat].missingSuit !== null) continue;
+        if (s.seats[seat].assignment.kind !== 'ai') continue;
+        const suit = decideMissingSuit(s, seat);
+        const r = chooseMissing(s, seat, suit);
+        if (r.ok && r.state) {
+          s = r.state;
+          progressed = true;
+          break;
+        }
+      }
+      if (progressed) continue;
+      break;
+    }
+
+    // 2. Resolve AI decisions in claim window.
+    if (s.phase === 'claim-window' && s.claimWindow) {
+      const cw = s.claimWindow;
+      const aiSeatsWithOptions = ALL_SEATS.filter(seat =>
+        s.seats[seat].assignment.kind === 'ai' &&
+        cw.options.some(o => o.seat === seat) &&
+        !cw.decisions.some(d => d.seat === seat),
+      );
+      if (aiSeatsWithOptions.length > 0) {
+        const seat = aiSeatsWithOptions[0];
+        const choice = decideClaim(s, seat, cw.options);
+        const r = submitClaim(s, seat, choice);
+        if (r.ok && r.state) {
+          s = r.state;
+          continue;
+        }
+        break;
+      }
+      if (cw.pending.length > 0) break;
+    }
+
+    // 3. Playing phase: if turn is AI, run their move.
+    if (s.phase === 'playing' && s.seats[s.turn].assignment.kind === 'ai') {
+      const seat = s.turn;
+      const player = s.seats[seat];
+
+      if (player.hand.length === 14) {
+        // 自摸 hu check
+        const hu = canHu(player.hand, player.melds, player.missingSuit);
+        if (hu.canHu) {
+          const r = declareSelfDrawHu(s, seat);
+          if (r.ok && r.state) { s = r.state; continue; }
+        }
+
+        // 暗杠
+        const counts = new Map<string, number>();
+        for (const tile of player.hand) {
+          const k = `${tile.suit}-${tile.value}`;
+          counts.set(k, (counts.get(k) ?? 0) + 1);
+        }
+        let gangAnTaken = false;
+        for (const [k, c] of counts) {
+          if (c === 4) {
+            const [suit, valStr] = k.split('-');
+            const r = declareGangAn(s, seat, suit as Suit, Number(valStr) as TileValue);
+            if (r.ok && r.state) { s = r.state; gangAnTaken = true; break; }
+          }
+        }
+        if (gangAnTaken) continue;
+
+        // 补杠
+        let gangBuTaken = false;
+        for (const meld of player.melds) {
+          if (meld.type !== 'peng') continue;
+          const m0 = meld.tiles[0];
+          const matchTile = player.hand.find(t => t.suit === m0.suit && t.value === m0.value);
+          if (matchTile) {
+            const r = declareGangBu(s, seat, matchTile.id);
+            if (r.ok && r.state) { s = r.state; gangBuTaken = true; break; }
+          }
+        }
+        if (gangBuTaken) continue;
+
+        // Discard
+        const tileId = decideDiscardStub(s, seat);
+        const r = discard(s, seat, tileId);
+        if (r.ok && r.state) { s = r.state; continue; }
+        break;
+      }
+
+      // After peng: hand size 13, discard
+      if (player.hand.length === 13) {
+        const tileId = decideDiscardStub(s, seat);
+        const r = discard(s, seat, tileId);
+        if (r.ok && r.state) { s = r.state; continue; }
+      }
+      break;
+    }
+
+    break;
+  }
+  return s;
+}
+
+export function applyActionWithAI(state: GameState, action: Action): ActionResult {
+  const r = applyAction(state, action);
+  if (!r.ok || !r.state) return r;
+  return { ok: true, state: driveAI(r.state) };
 }
