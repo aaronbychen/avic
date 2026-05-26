@@ -251,9 +251,20 @@ function computeClaimOptions(state: GameState, fromSeat: Seat, tile: Tile): Clai
   for (const seat of ALL_SEATS) {
     if (seat === fromSeat) continue;
     if (state.seats[seat].hasHu) continue;
-    const matching = countMatchingInHand(state.seats[seat].hand, tile.suit, tile.value);
-    if (matching >= 3) options.push({ seat, type: 'gang' });
-    if (matching >= 2) options.push({ seat, type: 'peng' });
+    const player = state.seats[seat];
+    const matching = countMatchingInHand(player.hand, tile.suit, tile.value);
+    if (matching >= 3) {
+      options.push({ seat, type: 'gang' });
+    }
+    if (matching >= 2) {
+      options.push({ seat, type: 'peng' });
+    }
+    // Hu: hand + tile would form a hu shape, missing-suit OK.
+    const tempHand = [...player.hand, tile];
+    const huCheck = canHu(tempHand, player.melds, player.missingSuit);
+    if (huCheck.canHu) {
+      options.push({ seat, type: 'hu' });
+    }
   }
   return options;
 }
@@ -274,12 +285,16 @@ export function discard(state: GameState, seat: Seat, tileId: TileId): ActionRes
   const options = computeClaimOptions(next, seat, tile);
   if (options.length > 0) {
     next.phase = 'claim-window';
+    // For hu claims, all seats with a hu option must decide (一炮多响).
+    // For peng/gang only, only humans need to decide (AIs auto-pass).
+    const huSeats = new Set(options.filter(o => o.type === 'hu').map(o => o.seat));
     next.claimWindow = {
       discardedTile: tile,
       fromSeat: seat,
       options,
       pending: ALL_SEATS.filter(s =>
-        options.some(o => o.seat === s) && next.seats[s].assignment.kind === 'human',
+        options.some(o => o.seat === s) &&
+        (huSeats.has(s) || next.seats[s].assignment.kind === 'human'),
       ),
       decisions: [],
       expiresAt: Date.now() + 10_000,
@@ -336,7 +351,7 @@ function resolveClaimWindow(state: GameState): GameState {
   const pengClaim = cw.decisions.find(d => d.choice === 'peng');
 
   if (huClaims.length > 0) {
-    return next; // Task 11 implements
+    return resolveHuClaims(next, huClaims.map(c => c.seat));
   }
   if (gangClaim) {
     return resolveGangMing(next, gangClaim.seat);
@@ -345,6 +360,55 @@ function resolveClaimWindow(state: GameState): GameState {
     return resolvePeng(next, pengClaim.seat);
   }
   return resolveAllPass(next);
+}
+
+function resolveHuClaims(state: GameState, winners: Seat[]): GameState {
+  const next = clone(state);
+  const cw = next.claimWindow!;
+  const tile = cw.discardedTile;
+  const fromSeat = cw.fromSeat;
+
+  // Remove the discarded tile from discarder's discards (it conceptually goes to the winner).
+  const di = next.seats[fromSeat].discards.findIndex(t => t.id === tile.id);
+  if (di !== -1) next.seats[fromSeat].discards.splice(di, 1);
+  next.lastDiscard = null;
+
+  for (const seat of winners) {
+    const player = next.seats[seat];
+    const tempHand = [...player.hand, tile];
+    const result = canHu(tempHand, player.melds, player.missingSuit);
+    if (!result.canHu) continue;
+    const fan = computeFan(result.winTypes, false);
+    const huResult: HuResult = {
+      winTypes: result.winTypes,
+      fan,
+      selfDraw: false,
+      winningTile: tile,
+      fromSeat,
+    };
+    player.huResult = huResult;
+    player.hasHu = true;
+    next.huOrder.push(seat);
+    applyHuPayout(next, seat);
+  }
+
+  next.claimWindow = null;
+  checkTerminate(next);
+
+  if (next.phase !== 'settled') {
+    const target = nextActiveSeat(next, fromSeat);
+    if (!target) {
+      next.phase = 'settled';
+    } else {
+      next.phase = 'playing';
+      next.turn = target;
+      if (!drawTileFor(next, target)) {
+        next.phase = 'settled';
+      }
+      checkTerminate(next);
+    }
+  }
+  return next;
 }
 
 function resolvePeng(state: GameState, seat: Seat): GameState {

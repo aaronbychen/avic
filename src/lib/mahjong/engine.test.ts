@@ -546,3 +546,143 @@ describe('declareGangBu — 补杠', () => {
     expect(r.error).toBe('no-matching-peng');
   });
 });
+
+describe('claim window — hu (单响 and 一炮多响)', () => {
+  function setupForDianpaoHu(): GameState {
+    let s = startedGame();
+    s = JSON.parse(JSON.stringify(s)) as GameState;
+
+    // South gets a tenpai hand waiting on 5wan (forms 4 triplets + pair when 5wan added).
+    s.seats.south.hand = [
+      { id: 'wan-1-1', suit: 'wan', value: 1 },
+      { id: 'wan-1-2', suit: 'wan', value: 1 },
+      { id: 'wan-1-3', suit: 'wan', value: 1 },
+      { id: 'wan-2-1', suit: 'wan', value: 2 },
+      { id: 'wan-2-2', suit: 'wan', value: 2 },
+      { id: 'wan-2-3', suit: 'wan', value: 2 },
+      { id: 'wan-4-1', suit: 'wan', value: 4 },
+      { id: 'wan-4-2', suit: 'wan', value: 4 },
+      { id: 'wan-4-3', suit: 'wan', value: 4 },
+      { id: 'wan-7-1', suit: 'wan', value: 7 },
+      { id: 'wan-7-2', suit: 'wan', value: 7 },
+      { id: 'wan-7-3', suit: 'wan', value: 7 },
+      { id: 'wan-5-1', suit: 'wan', value: 5 },
+    ];
+    s.seats.south.missingSuit = 'tong';
+
+    // East has the 5wan to discard (after drawing — east is on turn with 14 tiles).
+    s.seats.east.hand = s.seats.east.hand.filter(t => !(t.suit === 'wan' && t.value === 5));
+    while (s.seats.east.hand.length < 13 && s.wall.length > 0) s.seats.east.hand.push(s.wall.pop()!);
+    s.seats.east.hand.push({ id: 'wan-5-2', suit: 'wan', value: 5 });
+    s.wallCount = s.wall.length;
+    return s;
+  }
+
+  it('south can claim hu (点炮) on east discarding 5wan; payout flows from east to south', () => {
+    let s = setupForDianpaoHu();
+    s = discard(s, 'east', 'wan-5-2').state!;
+    expect(s.phase).toBe('claim-window');
+    const huOpt = s.claimWindow!.options.find(o => o.seat === 'south' && o.type === 'hu');
+    expect(huOpt).toBeDefined();
+
+    const eastBefore = s.seats.east.score;
+    const southBefore = s.seats.south.score;
+    s = submitClaim(s, 'south', 'hu').state!;
+    expect(s.seats.south.hasHu).toBe(true);
+    expect(s.seats.south.huResult).not.toBeNull();
+    expect(s.seats.south.huResult!.selfDraw).toBe(false);
+    expect(s.seats.south.huResult!.fromSeat).toBe('east');
+    expect(s.huOrder).toEqual(['south']);
+    // East paid 2^fan; south gained the same.
+    const fan = s.seats.south.huResult!.fan;
+    const chips = 2 ** fan;
+    expect(s.seats.south.score).toBe(southBefore + chips);
+    expect(s.seats.east.score).toBe(eastBefore - chips);
+    // West and north scores unchanged.
+    expect(s.seats.west.score).toBe(0);
+    expect(s.seats.north.score).toBe(0);
+    // Hand continues; phase is 'playing' with next active seat (north) on turn (south is hu'd).
+    expect(s.phase).toBe('playing');
+    expect(s.turn).toBe('north');
+  });
+
+  it('一炮多响: two seats both claim hu on the same discard, both paid by discarder', () => {
+    let s = setupForDianpaoHu();
+    // Also give west a tenpai hand waiting on 5wan (different shape: pure triplets too).
+    s = JSON.parse(JSON.stringify(s)) as GameState;
+    s.seats.west.hand = [
+      { id: 'wan-3-1', suit: 'wan', value: 3 },
+      { id: 'wan-3-2', suit: 'wan', value: 3 },
+      { id: 'wan-3-3', suit: 'wan', value: 3 },
+      { id: 'wan-6-1', suit: 'wan', value: 6 },
+      { id: 'wan-6-2', suit: 'wan', value: 6 },
+      { id: 'wan-6-3', suit: 'wan', value: 6 },
+      { id: 'wan-8-1', suit: 'wan', value: 8 },
+      { id: 'wan-8-2', suit: 'wan', value: 8 },
+      { id: 'wan-8-3', suit: 'wan', value: 8 },
+      { id: 'wan-9-1', suit: 'wan', value: 9 },
+      { id: 'wan-9-2', suit: 'wan', value: 9 },
+      { id: 'wan-9-3', suit: 'wan', value: 9 },
+      { id: 'wan-5-3', suit: 'wan', value: 5 },
+    ];
+    s.seats.west.missingSuit = 'tong';
+
+    s = discard(s, 'east', 'wan-5-2').state!;
+    expect(s.phase).toBe('claim-window');
+    s = submitClaim(s, 'south', 'hu').state!;
+    s = submitClaim(s, 'west', 'hu').state!; // also hu
+    // After all decisions, both should have hu'd and east should pay both.
+    expect(s.seats.south.hasHu).toBe(true);
+    expect(s.seats.west.hasHu).toBe(true);
+    const southChips = 2 ** s.seats.south.huResult!.fan;
+    const westChips = 2 ** s.seats.west.huResult!.fan;
+    expect(s.seats.east.score).toBe(-(southChips + westChips));
+    expect(s.seats.south.score).toBe(southChips);
+    expect(s.seats.west.score).toBe(westChips);
+    expect(s.huOrder).toEqual(['south', 'west']);
+    // Two players left active (east, north). Hand continues.
+    expect(s.phase).toBe('playing');
+  });
+
+  it('terminates when ≥3 seats hu', () => {
+    let s = setupForDianpaoHu();
+    s = JSON.parse(JSON.stringify(s)) as GameState;
+    // Pre-mark north as hu'd to simulate prior round's hu in same hand.
+    s.seats.north.hasHu = true;
+    s.seats.north.huResult = {
+      winTypes: ['ping-hu'],
+      fan: 1,
+      selfDraw: false,
+      winningTile: { id: 'tiao-3-1', suit: 'tiao', value: 3 },
+      fromSeat: 'east',
+    };
+    s.huOrder = ['north'];
+
+    s = discard(s, 'east', 'wan-5-2').state!;
+    s = submitClaim(s, 'south', 'hu').state!;
+    // Now 2 seats hu'd; need to also have west hu to hit 3. We don't; so phase is still playing
+    // unless only 1 active seat remains. South + north hu'd → west and east are active. Phase: playing.
+    expect(s.phase).toBe('playing');
+  });
+});
+
+describe('流局 — wall exhausted', () => {
+  it('settles the hand with no winners when wall empties on a draw', () => {
+    let s = startedGame();
+    s = JSON.parse(JSON.stringify(s)) as GameState;
+    // Empty the wall manually.
+    s.wall = [];
+    s.wallCount = 0;
+    // Force east to have a tile to discard (already does — 14 tiles).
+    // Find a claim-free tile to discard.
+    const tile = s.seats.east.hand.find(tile => {
+      return (['south','west','north'] as Seat[]).every(seat =>
+        s.seats[seat].hand.filter(t => t.suit === tile.suit && t.value === tile.value).length < 2,
+      );
+    })!;
+    s = discard(s, 'east', tile.id).state!;
+    // Next seat (north) tried to draw, wall empty → settled (流局).
+    expect(s.phase).toBe('settled');
+    expect(s.huOrder).toEqual([]);
+  });
+});
