@@ -686,3 +686,94 @@ describe('流局 — wall exhausted', () => {
     expect(s.huOrder).toEqual([]);
   });
 });
+
+
+import { startNextHand, endGame, totalTilesInPlay } from './engine';
+
+describe('startNextHand', () => {
+  it('reshuffles, resets per-hand state, increments handNumber, preserves scores and assignments', () => {
+    let s = startedGame();
+    s = JSON.parse(JSON.stringify(s)) as GameState;
+    // Force-settle the current hand and assign some scores.
+    s.phase = 'settled';
+    s.seats.south.score = 10;
+    s.seats.east.score = -10;
+    s.huOrder = ['south'];
+    s.seats.south.hasHu = true;
+    s.seats.south.huResult = {
+      winTypes: ['ping-hu'], fan: 1, selfDraw: false,
+      winningTile: { id: 'wan-1-1', suit: 'wan', value: 1 },
+      fromSeat: 'east',
+    };
+
+    const r = startNextHand(s);
+    expect(r.ok).toBe(true);
+    s = r.state!;
+    expect(s.phase).toBe('choose-missing');
+    expect(s.handNumber).toBe(2);
+    expect(s.huOrder).toEqual([]);
+    for (const seat of ['east','south','west','north'] as Seat[]) {
+      expect(s.seats[seat].hand.length).toBe(13);
+      expect(s.seats[seat].melds).toEqual([]);
+      expect(s.seats[seat].discards).toEqual([]);
+      expect(s.seats[seat].missingSuit).toBeNull();
+      expect(s.seats[seat].hasHu).toBe(false);
+      expect(s.seats[seat].huResult).toBeNull();
+    }
+    // Scores preserved
+    expect(s.seats.south.score).toBe(10);
+    expect(s.seats.east.score).toBe(-10);
+    // Assignments preserved
+    expect(s.seats.east.assignment.human).toBe('Aaron');
+    expect(s.seats.south.assignment.human).toBe('Vicky');
+  });
+
+  it('rejects if not in settled phase', () => {
+    const s = startedGame();
+    const r = startNextHand(s);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('wrong-phase');
+  });
+});
+
+describe('endGame', () => {
+  it('marks gameOver=true and returns final scores in settled phase', () => {
+    let s = startedGame();
+    s = { ...s, phase: 'settled' };
+    const r = endGame(s);
+    expect(r.ok).toBe(true);
+    s = r.state!;
+    expect(s.gameOver).toBe(true);
+  });
+
+  it('rejects ending mid-hand', () => {
+    const s = startedGame();
+    const r = endGame(s);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('hand-in-progress');
+  });
+});
+
+describe('tile conservation invariant', () => {
+  it('keeps total tiles = 108 across all states from a started game', () => {
+    let s = startedGame();
+    expect(totalTilesInPlay(s)).toBe(108);
+
+    // Find a claim-free tile, discard it, all-pass, count again.
+    const safeTile = s.seats.east.hand.find(tile =>
+      (['south','west','north'] as Seat[]).every(seat =>
+        s.seats[seat].hand.filter(t => t.suit === tile.suit && t.value === tile.value).length < 2,
+      ),
+    );
+    if (safeTile) {
+      s = discard(s, 'east', safeTile.id).state!;
+      expect(totalTilesInPlay(s)).toBe(108);
+      if (s.phase === 'claim-window') {
+        s = submitClaim(s, 'south', 'pass').state!;
+        s = submitClaim(s, 'west', 'pass').state!;
+        s = submitClaim(s, 'north', 'pass').state!;
+      }
+      expect(totalTilesInPlay(s)).toBe(108);
+    }
+  });
+});

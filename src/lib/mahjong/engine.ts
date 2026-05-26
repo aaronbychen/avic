@@ -169,17 +169,21 @@ export type Action =
   | { type: 'self-draw-hu'; seat: Seat }
   | { type: 'claim'; seat: Seat; choice: 'peng' | 'gang' | 'hu' | 'pass' }
   | { type: 'gang-an'; seat: Seat; suit: Suit; value: import('./types').TileValue }
-  | { type: 'gang-bu'; seat: Seat; tileId: TileId };
+  | { type: 'gang-bu'; seat: Seat; tileId: TileId }
+  | { type: 'start-next-hand' }
+  | { type: 'end-game' };
 
 export function applyAction(state: GameState, action: Action): ActionResult {
   switch (action.type) {
-    case 'pick-seat':      return pickSeat(state, action.seat, action.human);
-    case 'choose-missing': return chooseMissing(state, action.seat, action.suit);
-    case 'discard':        return discard(state, action.seat, action.tileId);
-    case 'self-draw-hu':   return declareSelfDrawHu(state, action.seat);
-    case 'claim':          return submitClaim(state, action.seat, action.choice);
-    case 'gang-an':        return declareGangAn(state, action.seat, action.suit, action.value);
-    case 'gang-bu':        return declareGangBu(state, action.seat, action.tileId);
+    case 'pick-seat':        return pickSeat(state, action.seat, action.human);
+    case 'choose-missing':   return chooseMissing(state, action.seat, action.suit);
+    case 'discard':          return discard(state, action.seat, action.tileId);
+    case 'self-draw-hu':     return declareSelfDrawHu(state, action.seat);
+    case 'claim':            return submitClaim(state, action.seat, action.choice);
+    case 'gang-an':          return declareGangAn(state, action.seat, action.suit, action.value);
+    case 'gang-bu':          return declareGangBu(state, action.seat, action.tileId);
+    case 'start-next-hand':  return startNextHand(state);
+    case 'end-game':         return endGame(state);
     default: {
       const _: never = action;
       return { ok: false, error: 'unknown-action' };
@@ -571,4 +575,46 @@ export function declareSelfDrawHu(state: GameState, seat: Seat): ActionResult {
     }
   }
   return { ok: true, state: bumpVersion(next) };
+}
+
+export function startNextHand(state: GameState): ActionResult {
+  if (state.phase !== 'settled') return { ok: false, error: 'wrong-phase' };
+  if (state.gameOver) return { ok: false, error: 'game-over' };
+  const next = clone(state);
+  next.wall = shuffle(buildWall());
+  for (const seat of ALL_SEATS) {
+    next.seats[seat].hand = next.wall.splice(next.wall.length - 13, 13);
+    next.seats[seat].melds = [];
+    next.seats[seat].discards = [];
+    next.seats[seat].missingSuit = null;
+    next.seats[seat].hasHu = false;
+    next.seats[seat].huResult = null;
+  }
+  next.wallCount = next.wall.length;
+  next.lastDiscard = null;
+  next.claimWindow = null;
+  next.huOrder = [];
+  next.turn = next.dealer;
+  next.handNumber += 1;
+  next.phase = 'choose-missing';
+  return { ok: true, state: bumpVersion(next) };
+}
+
+export function endGame(state: GameState): ActionResult {
+  if (state.phase !== 'seat-selection' && state.phase !== 'settled') {
+    return { ok: false, error: 'hand-in-progress' };
+  }
+  const next = clone(state);
+  next.gameOver = true;
+  return { ok: true, state: bumpVersion(next) };
+}
+
+export function totalTilesInPlay(state: GameState): number {
+  let n = state.wall.length;
+  for (const seat of ALL_SEATS) {
+    n += state.seats[seat].hand.length;
+    n += state.seats[seat].discards.length;
+    for (const m of state.seats[seat].melds) n += m.tiles.length;
+  }
+  return n;
 }
