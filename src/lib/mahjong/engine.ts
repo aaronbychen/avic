@@ -667,56 +667,50 @@ export function driveAI(state: GameState): GameState {
     }
 
     // 3. Playing phase: if turn is AI, run their move.
-    if (s.phase === 'playing' && s.seats[s.turn].assignment.kind === 'ai') {
+    if (s.phase === 'playing' && s.seats[s.turn].assignment.kind === 'ai' && !s.seats[s.turn].hasHu) {
       const seat = s.turn;
       const player = s.seats[seat];
 
-      if (player.hand.length === 14) {
-        // 自摸 hu check
-        const hu = canHu(player.hand, player.melds, player.missingSuit);
-        if (hu.canHu) {
-          const r = declareSelfDrawHu(s, seat);
-          if (r.ok && r.state) { s = r.state; continue; }
-        }
-
-        // 暗杠
-        const counts = new Map<string, number>();
-        for (const tile of player.hand) {
-          const k = `${tile.suit}-${tile.value}`;
-          counts.set(k, (counts.get(k) ?? 0) + 1);
-        }
-        let gangAnTaken = false;
-        for (const [k, c] of counts) {
-          if (c === 4) {
-            const [suit, valStr] = k.split('-');
-            const r = declareGangAn(s, seat, suit as Suit, Number(valStr) as TileValue);
-            if (r.ok && r.state) { s = r.state; gangAnTaken = true; break; }
-          }
-        }
-        if (gangAnTaken) continue;
-
-        // 补杠
-        let gangBuTaken = false;
-        for (const meld of player.melds) {
-          if (meld.type !== 'peng') continue;
-          const m0 = meld.tiles[0];
-          const matchTile = player.hand.find(t => t.suit === m0.suit && t.value === m0.value);
-          if (matchTile) {
-            const r = declareGangBu(s, seat, matchTile.id);
-            if (r.ok && r.state) { s = r.state; gangBuTaken = true; break; }
-          }
-        }
-        if (gangBuTaken) continue;
-
-        // Discard
-        const tileId = decideDiscard(s, seat);
-        const r = discard(s, seat, tileId);
+      // 自摸 hu (canHu enforces shape; works whether hand was 14 from draw
+      // or some other size — canHu just checks the structure).
+      const hu = canHu(player.hand, player.melds, player.missingSuit);
+      if (hu.canHu) {
+        const r = declareSelfDrawHu(s, seat);
         if (r.ok && r.state) { s = r.state; continue; }
-        break;
       }
 
-      // After peng: hand size 13, discard
-      if (player.hand.length === 13) {
+      // 暗杠 (4 of a kind in hand)
+      const counts = new Map<string, number>();
+      for (const tile of player.hand) {
+        const k = `${tile.suit}-${tile.value}`;
+        counts.set(k, (counts.get(k) ?? 0) + 1);
+      }
+      let gangAnTaken = false;
+      for (const [k, c] of counts) {
+        if (c === 4) {
+          const [suit, valStr] = k.split('-');
+          const r = declareGangAn(s, seat, suit as Suit, Number(valStr) as TileValue);
+          if (r.ok && r.state) { s = r.state; gangAnTaken = true; break; }
+        }
+      }
+      if (gangAnTaken) continue;
+
+      // 补杠 (a tile in hand matching an existing peng)
+      let gangBuTaken = false;
+      for (const meld of player.melds) {
+        if (meld.type !== 'peng') continue;
+        const m0 = meld.tiles[0];
+        const matchTile = player.hand.find(t => t.suit === m0.suit && t.value === m0.value);
+        if (matchTile) {
+          const r = declareGangBu(s, seat, matchTile.id);
+          if (r.ok && r.state) { s = r.state; gangBuTaken = true; break; }
+        }
+      }
+      if (gangBuTaken) continue;
+
+      // Discard. Always attempt — it's how the AI's turn ends regardless of
+      // whether they got here via fresh draw, gang replacement, or peng.
+      if (player.hand.length > 0) {
         const tileId = decideDiscard(s, seat);
         const r = discard(s, seat, tileId);
         if (r.ok && r.state) { s = r.state; continue; }

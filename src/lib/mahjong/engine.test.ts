@@ -810,4 +810,107 @@ describe('driveAI integration', () => {
     expect(s.turn).toBe('east'); // dealer human draws
     expect(s.seats.east.hand.length).toBe(14); // dealer drew first
   });
+
+  it('regression: AI discards after pengging a human discard', () => {
+    // Reproduces the bug: driveAI's playing-phase branch used to gate on
+    // hand.length === 14 (just-drew) or === 13 (just-pengged-by-AI's-driver,
+    // pre-MVP path). After a peng on a human's discard, the AI's hand has 11
+    // tiles (13 - 2). The old code fell through both gates and just `break`ed,
+    // leaving the turn stuck on the AI with no further state transitions.
+    //
+    // Build a fully deterministic state: start from initialState, then plant
+    // hands manually so we don't depend on Math.random shuffles.
+    let s = initialState();
+    s.phase = 'playing';
+    s.dealer = 'east';
+    s.turn = 'east';
+    s.handNumber = 1;
+
+    // east + south are humans; west + north are AI. Names matter for routing
+    // claim decisions through driveAI vs human-pending.
+    s.seats.east.assignment = { seat: 'east', kind: 'human', human: 'Aaron' };
+    s.seats.south.assignment = { seat: 'south', kind: 'human', human: 'Vicky' };
+    s.seats.west.assignment = { seat: 'west', kind: 'ai', aiId: 'AI-1' };
+    s.seats.north.assignment = { seat: 'north', kind: 'ai', aiId: 'AI-2' };
+
+    // Missing suits.
+    s.seats.east.missingSuit = 'tong';
+    s.seats.south.missingSuit = 'tong';
+    s.seats.west.missingSuit = 'tong';
+    // North gets missingSuit=wan so the AI heuristic accepts the peng on 5wan
+    // (pengging the missing suit removes 2 of those tiles at once).
+    s.seats.north.missingSuit = 'wan';
+
+    // Build hands explicitly. East has 14 tiles (just drew, will discard).
+    // The discard target is wan-5-1. Other east tiles are non-claimable
+    // (chosen so south/west/north can't peng/gang/hu on them).
+    s.seats.east.hand = [
+      { id: 'wan-5-1', suit: 'wan', value: 5 },
+      { id: 'wan-1-1', suit: 'wan', value: 1 },
+      { id: 'wan-3-1', suit: 'wan', value: 3 },
+      { id: 'wan-7-1', suit: 'wan', value: 7 },
+      { id: 'wan-9-1', suit: 'wan', value: 9 },
+      { id: 'tong-1-1', suit: 'tong', value: 1 },
+      { id: 'tong-3-1', suit: 'tong', value: 3 },
+      { id: 'tong-5-1', suit: 'tong', value: 5 },
+      { id: 'tong-7-1', suit: 'tong', value: 7 },
+      { id: 'tong-9-1', suit: 'tong', value: 9 },
+      { id: 'tiao-1-1', suit: 'tiao', value: 1 },
+      { id: 'tiao-3-1', suit: 'tiao', value: 3 },
+      { id: 'tiao-5-1', suit: 'tiao', value: 5 },
+      { id: 'tiao-7-1', suit: 'tiao', value: 7 },
+    ];
+    // North holds two 5wan (will peng east's discard) plus 11 unrelated tiles.
+    s.seats.north.hand = [
+      { id: 'wan-5-2', suit: 'wan', value: 5 },
+      { id: 'wan-5-3', suit: 'wan', value: 5 },
+      { id: 'tong-2-1', suit: 'tong', value: 2 },
+      { id: 'tong-4-1', suit: 'tong', value: 4 },
+      { id: 'tong-6-1', suit: 'tong', value: 6 },
+      { id: 'tong-8-1', suit: 'tong', value: 8 },
+      { id: 'tiao-2-1', suit: 'tiao', value: 2 },
+      { id: 'tiao-4-1', suit: 'tiao', value: 4 },
+      { id: 'tiao-6-1', suit: 'tiao', value: 6 },
+      { id: 'tiao-8-1', suit: 'tiao', value: 8 },
+      { id: 'tiao-9-1', suit: 'tiao', value: 9 },
+      { id: 'wan-2-1', suit: 'wan', value: 2 },
+      { id: 'wan-4-1', suit: 'wan', value: 4 },
+    ];
+    // South + west: 13 tiles each, no claim ability on any of east's tiles.
+    // Use isolated tiles (singletons of values others don't share).
+    s.seats.south.hand = Array.from({ length: 13 }, (_, i) => ({
+      id: `tong-${(i % 9) + 1}-${Math.floor(i / 9) + 2}`,
+      suit: 'tong' as const,
+      value: ((i % 9) + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9,
+    }));
+    s.seats.west.hand = Array.from({ length: 13 }, (_, i) => ({
+      id: `tiao-${(i % 9) + 1}-${Math.floor(i / 9) + 2}`,
+      suit: 'tiao' as const,
+      value: ((i % 9) + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9,
+    }));
+
+    // Wall just needs enough tiles for replacement draws after claims.
+    s.wall = Array.from({ length: 30 }, (_, i) => ({
+      id: `tong-1-${i + 10}`,
+      suit: 'tong' as const,
+      value: 1 as const,
+    }));
+    s.wallCount = s.wall.length;
+
+    // Aaron (east) discards 5wan via the AI-driving wrapper.
+    const r = applyActionWithAI(s, { type: 'discard', seat: 'east', tileId: 'wan-5-1' });
+    expect(r.ok).toBe(true);
+    s = r.state!;
+
+    // North must have pengged.
+    expect(s.seats.north.melds.length).toBeGreaterThanOrEqual(1);
+    const pengMeld = s.seats.north.melds.find((m) => m.type === 'peng');
+    expect(pengMeld).toBeDefined();
+    expect(pengMeld!.tiles.every((t) => t.suit === 'wan' && t.value === 5)).toBe(true);
+
+    // Critical regression assertion: north MUST have discarded after pengging.
+    // Before the fix, driveAI's hand.length === 14 || === 13 gate let north
+    // sit at hand.length=11 and never act, so discards stayed empty.
+    expect(s.seats.north.discards.length).toBeGreaterThanOrEqual(1);
+  });
 });
