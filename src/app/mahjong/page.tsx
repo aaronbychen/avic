@@ -7,6 +7,7 @@ import { RotatePrompt } from '@/components/mahjong/RotatePrompt';
 import { SeatPicker } from '@/components/mahjong/SeatPicker';
 import { ChooseMissing } from '@/components/mahjong/ChooseMissing';
 import { Table } from '@/components/mahjong/Table';
+import { SettlementPanel } from '@/components/mahjong/SettlementPanel';
 
 export default function MahjongPage() {
   return (
@@ -86,6 +87,13 @@ function MahjongShell() {
           <Table state={state} mySeat={mySeat} />
         )}
       </div>
+      {state.phase === 'settled' && (
+        <SettlementPanel
+          state={state}
+          onNextHand={() => useMahjongStore.getState().sendAction({ type: 'start-next-hand' })}
+          onEndGame={() => useMahjongStore.getState().endGame()}
+        />
+      )}
     </>
   );
 }

@@ -41,6 +41,33 @@ interface MahjongStore {
 
 let channel: Channel | null = null;
 
+const AI_FRAME_DELAY_MS = 600;
+
+let stateQueue: GameState[] = [];
+let pumping = false;
+
+function pumpQueue(
+  set: (partial: Partial<MahjongStore>) => void,
+  getMe: () => HumanName | null,
+) {
+  if (pumping) return;
+  pumping = true;
+  function step() {
+    const next = stateQueue.shift();
+    if (!next) { pumping = false; return; }
+    const myActualSeat = deriveMySeat(next, getMe());
+    set({
+      state: next,
+      mySeat: myActualSeat,
+      connected: true,
+      syncedVersion: next.version,
+    });
+    if (stateQueue.length === 0) { pumping = false; return; }
+    window.setTimeout(step, AI_FRAME_DELAY_MS);
+  }
+  step();
+}
+
 function deriveMySeat(state: GameState, me: HumanName | null): Seat | null {
   if (!me) return null;
   for (const seat of ['east', 'south', 'west', 'north'] as Seat[]) {
@@ -109,19 +136,29 @@ export const useMahjongStore = create<MahjongStore>((set, get) => ({
     const pusher = getPusherClient();
     channel = pusher.subscribe(MAHJONG_CHANNEL);
 
-    // Subscribe to ALL 4 seat-state events. Discriminate using deriveMySeat at receive time.
     for (const seat of ['east', 'south', 'west', 'north'] as Seat[]) {
       channel.bind(SEAT_STATE_EVENT[seat], (incoming: GameState) => {
         const myActualSeat = deriveMySeat(incoming, get().me);
-        // Only consume the event matching our seat. Before seat-pick, accept any event
-        // (they're all the same shape with all hands hidden).
         if (myActualSeat === null || myActualSeat === seat) {
-          set({
-            state: incoming,
-            mySeat: myActualSeat,
-            connected: true,
-            syncedVersion: incoming.version,
-          });
+          // If incoming state advances us to a 'my-turn' or 'claim-window' state, flush
+          // the queue and apply immediately so UI is always responsive to the human.
+          const myTurn =
+            incoming.phase === 'playing' && myActualSeat !== null && incoming.turn === myActualSeat;
+          const myClaim =
+            incoming.phase === 'claim-window' &&
+            incoming.claimWindow?.options.some((o) => o.seat === myActualSeat);
+          if (myTurn || myClaim) {
+            stateQueue = [];
+            set({
+              state: incoming,
+              mySeat: myActualSeat,
+              connected: true,
+              syncedVersion: incoming.version,
+            });
+            return;
+          }
+          stateQueue.push(incoming);
+          pumpQueue((p) => set(p as MahjongStore), () => get().me);
         }
       });
     }
