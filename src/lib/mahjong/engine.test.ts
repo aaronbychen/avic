@@ -146,22 +146,30 @@ describe('discard (no claims)', () => {
     let s = startedGame();
     expect(s.turn).toBe('east');
     expect(s.seats.east.hand.length).toBe(14);
-    const tileId: TileId = s.seats.east.hand[0].id;
+
+    // Find a tile in east's hand that no other seat could peng (no other seat has 2+ of same suit/value).
+    const tileId = (() => {
+      for (const tile of s.seats.east.hand) {
+        const otherCounts = (['south','west','north'] as Seat[]).map(seat =>
+          s.seats[seat].hand.filter(t => t.suit === tile.suit && t.value === tile.value).length
+        );
+        if (otherCounts.every(c => c < 2)) return tile.id;
+      }
+      throw new Error('no claim-free tile found in random hand (rare; rerun)');
+    })();
 
     const r = discard(s, 'east', tileId);
     expect(r.ok).toBe(true);
     s = r.state!;
 
-    // East has 13, discarded into east.discards
     expect(s.seats.east.hand.length).toBe(13);
     expect(s.seats.east.discards.length).toBe(1);
     expect(s.seats.east.discards[0].id).toBe(tileId);
-    expect(s.lastDiscard).toEqual({ seat: 'east', tile: { id: tileId, suit: expect.anything(), value: expect.anything() } });
-    // Turn advances to north (counter-clockwise) and they draw
+    expect(s.lastDiscard?.seat).toBe('east');
+    expect(s.lastDiscard?.tile.id).toBe(tileId);
     expect(s.turn).toBe('north');
     expect(s.seats.north.hand.length).toBe(14);
     expect(s.wallCount).toBe(54);
-    // Phase remains 'playing' (we'll add claim-window in Task 9)
     expect(s.phase).toBe('playing');
   });
 
@@ -285,5 +293,98 @@ describe('declareSelfDrawHu', () => {
     const chips = 2 ** fan;
     expect(s.seats.north.score).toBe(-chips);
     expect(s.seats.east.score).toBe(chips);
+  });
+});
+
+import { submitClaim } from './engine';
+import type { Tile } from './types';
+
+describe('claim window — peng', () => {
+  function clone_(s: GameState): GameState {
+    return JSON.parse(JSON.stringify(s));
+  }
+
+  function setupForPengTest(): GameState {
+    let s = startedGame();
+    const fiveWan1: Tile = { id: 'wan-5-1', suit: 'wan', value: 5 };
+    const fiveWan2: Tile = { id: 'wan-5-2', suit: 'wan', value: 5 };
+    const fiveWan3: Tile = { id: 'wan-5-3', suit: 'wan', value: 5 };
+    s = clone_(s);
+    function stripFiveWan(hand: Tile[]): Tile[] { return hand.filter(t => !(t.suit === 'wan' && t.value === 5)); }
+    s.seats.east.hand = stripFiveWan(s.seats.east.hand);
+    s.seats.south.hand = stripFiveWan(s.seats.south.hand);
+    s.seats.west.hand = stripFiveWan(s.seats.west.hand);
+    s.seats.north.hand = stripFiveWan(s.seats.north.hand);
+    s.wall = s.wall.filter(t => !(t.suit === 'wan' && t.value === 5));
+    while (s.seats.east.hand.length < 13 && s.wall.length > 0) s.seats.east.hand.push(s.wall.pop()!);
+    while (s.seats.south.hand.length < 11 && s.wall.length > 0) s.seats.south.hand.push(s.wall.pop()!);
+    while (s.seats.west.hand.length < 13 && s.wall.length > 0) s.seats.west.hand.push(s.wall.pop()!);
+    while (s.seats.north.hand.length < 13 && s.wall.length > 0) s.seats.north.hand.push(s.wall.pop()!);
+    s.seats.east.hand.push(fiveWan3);
+    s.seats.south.hand.push(fiveWan1, fiveWan2);
+    s.wallCount = s.wall.length;
+    return s;
+  }
+
+  it('opens claim window when a discard creates a legal peng for another seat', () => {
+    let s = setupForPengTest();
+    const r = discard(s, 'east', 'wan-5-3');
+    expect(r.ok).toBe(true);
+    s = r.state!;
+    expect(s.phase).toBe('claim-window');
+    expect(s.claimWindow).not.toBeNull();
+    expect(s.claimWindow!.fromSeat).toBe('east');
+    expect(s.claimWindow!.discardedTile.id).toBe('wan-5-3');
+    expect(s.claimWindow!.options.find(o => o.seat === 'south' && o.type === 'peng')).toBeDefined();
+    expect(s.seats.east.discards.find(t => t.id === 'wan-5-3')).toBeDefined();
+    expect(s.turn).toBe('east');
+  });
+
+  it('south claims peng — meld formed, south becomes turn (no draw), claim window cleared', () => {
+    let s = setupForPengTest();
+    s = discard(s, 'east', 'wan-5-3').state!;
+    const r = submitClaim(s, 'south', 'peng');
+    expect(r.ok).toBe(true);
+    s = r.state!;
+    expect(s.phase).toBe('playing');
+    expect(s.turn).toBe('south');
+    expect(s.claimWindow).toBeNull();
+    expect(s.seats.south.melds.length).toBe(1);
+    const meld = s.seats.south.melds[0];
+    expect(meld.type).toBe('peng');
+    expect(meld.fromSeat).toBe('east');
+    expect(meld.tiles.map(t => t.id).sort()).toEqual(['wan-5-1','wan-5-2','wan-5-3']);
+    expect(s.seats.south.hand.find(t => t.id === 'wan-5-1' || t.id === 'wan-5-2')).toBeUndefined();
+    expect(s.seats.east.discards.find(t => t.id === 'wan-5-3')).toBeUndefined();
+    expect(s.wallCount).toBe(s.wall.length);
+  });
+
+  it('all-pass resolution: turn advances to next active seat, that seat draws', () => {
+    let s = setupForPengTest();
+    s = discard(s, 'east', 'wan-5-3').state!;
+    const wallBefore = s.wallCount;
+    // Only south has a peng option. After south passes, claim window resolves.
+    s = submitClaim(s, 'south', 'pass').state!;
+    expect(s.phase).toBe('playing');
+    expect(s.claimWindow).toBeNull();
+    expect(s.turn).toBe('north');
+    expect(s.seats.north.hand.length).toBe(14);
+    expect(s.wallCount).toBe(wallBefore - 1);
+    expect(s.seats.east.discards.find(t => t.id === 'wan-5-3')).toBeDefined();
+  });
+
+  it('rejects claim from a seat with no legal option', () => {
+    let s = setupForPengTest();
+    s = discard(s, 'east', 'wan-5-3').state!;
+    const r = submitClaim(s, 'west', 'peng');
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('no-such-claim');
+  });
+
+  it('rejects claim outside claim-window phase', () => {
+    const s = startedGame();
+    const r = submitClaim(s, 'south', 'pass');
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('wrong-phase');
   });
 });

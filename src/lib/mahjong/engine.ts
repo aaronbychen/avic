@@ -5,8 +5,11 @@ import type {
   PlayerState,
   Suit,
   TileId,
+  Tile,
   HuResult,
   WinType,
+  ClaimOption,
+  Meld,
 } from './types';
 import { TURN_ORDER } from './types';
 import { buildWall, shuffle } from './tiles';
@@ -163,7 +166,8 @@ export type Action =
   | { type: 'pick-seat'; seat: Seat; human: HumanName }
   | { type: 'choose-missing'; seat: Seat; suit: Suit }
   | { type: 'discard'; seat: Seat; tileId: TileId }
-  | { type: 'self-draw-hu'; seat: Seat };
+  | { type: 'self-draw-hu'; seat: Seat }
+  | { type: 'claim'; seat: Seat; choice: 'peng' | 'gang' | 'hu' | 'pass' };
 
 export function applyAction(state: GameState, action: Action): ActionResult {
   switch (action.type) {
@@ -171,6 +175,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
     case 'choose-missing': return chooseMissing(state, action.seat, action.suit);
     case 'discard':        return discard(state, action.seat, action.tileId);
     case 'self-draw-hu':   return declareSelfDrawHu(state, action.seat);
+    case 'claim':          return submitClaim(state, action.seat, action.choice);
     default: {
       const _: never = action;
       return { ok: false, error: 'unknown-action' };
@@ -233,6 +238,22 @@ function checkTerminate(state: GameState): void {
   }
 }
 
+function countMatchingInHand(hand: readonly Tile[], suit: Suit, value: number): number {
+  return hand.filter(t => t.suit === suit && t.value === value).length;
+}
+
+function computeClaimOptions(state: GameState, fromSeat: Seat, tile: Tile): ClaimOption[] {
+  const options: ClaimOption[] = [];
+  for (const seat of ALL_SEATS) {
+    if (seat === fromSeat) continue;
+    if (state.seats[seat].hasHu) continue;
+    const matching = countMatchingInHand(state.seats[seat].hand, tile.suit, tile.value);
+    if (matching >= 3) options.push({ seat, type: 'gang' });
+    if (matching >= 2) options.push({ seat, type: 'peng' });
+  }
+  return options;
+}
+
 export function discard(state: GameState, seat: Seat, tileId: TileId): ActionResult {
   if (state.phase !== 'playing') return { ok: false, error: 'wrong-phase' };
   if (state.turn !== seat) return { ok: false, error: 'not-your-turn' };
@@ -246,18 +267,109 @@ export function discard(state: GameState, seat: Seat, tileId: TileId): ActionRes
   next.seats[seat].discards.push(tile);
   next.lastDiscard = { seat, tile };
 
-  // Task 8: no claim window yet — Task 9 will add it.
+  const options = computeClaimOptions(next, seat, tile);
+  if (options.length > 0) {
+    next.phase = 'claim-window';
+    next.claimWindow = {
+      discardedTile: tile,
+      fromSeat: seat,
+      options,
+      pending: ALL_SEATS.filter(s =>
+        options.some(o => o.seat === s) && next.seats[s].assignment.kind === 'human',
+      ),
+      decisions: [],
+      expiresAt: Date.now() + 10_000,
+    };
+    return { ok: true, state: bumpVersion(next) };
+  }
+
   const target = nextActiveSeat(next, seat);
   if (!target) {
     next.phase = 'settled';
     return { ok: true, state: bumpVersion(next) };
   }
   next.turn = target;
-  if (!drawTileFor(next, target)) {
-    next.phase = 'settled';
-  }
+  if (!drawTileFor(next, target)) next.phase = 'settled';
   checkTerminate(next);
   return { ok: true, state: bumpVersion(next) };
+}
+
+export function submitClaim(
+  state: GameState,
+  seat: Seat,
+  choice: 'peng' | 'gang' | 'hu' | 'pass',
+): ActionResult {
+  if (state.phase !== 'claim-window' || !state.claimWindow) {
+    return { ok: false, error: 'wrong-phase' };
+  }
+  const cw = state.claimWindow;
+  if (choice !== 'pass') {
+    if (!cw.options.some(o => o.seat === seat && o.type === choice)) {
+      return { ok: false, error: 'no-such-claim' };
+    }
+  }
+  if (cw.decisions.some(d => d.seat === seat)) {
+    return { ok: false, error: 'already-decided' };
+  }
+
+  const next = clone(state);
+  next.claimWindow!.decisions.push({ seat, choice });
+  next.claimWindow!.pending = next.claimWindow!.pending.filter(s => s !== seat);
+
+  if (next.claimWindow!.pending.length > 0) {
+    return { ok: true, state: bumpVersion(next) };
+  }
+
+  return { ok: true, state: bumpVersion(resolveClaimWindow(next)) };
+}
+
+function resolveClaimWindow(state: GameState): GameState {
+  const cw = state.claimWindow!;
+  const next = clone(state);
+  const pengClaim = cw.decisions.find(d => d.choice === 'peng');
+  if (pengClaim) return resolvePeng(next, pengClaim.seat);
+  return resolveAllPass(next);
+}
+
+function resolvePeng(state: GameState, seat: Seat): GameState {
+  const next = clone(state);
+  const cw = next.claimWindow!;
+  const tile = cw.discardedTile;
+  const fromSeat = cw.fromSeat;
+
+  const di = next.seats[fromSeat].discards.findIndex(t => t.id === tile.id);
+  if (di !== -1) next.seats[fromSeat].discards.splice(di, 1);
+  next.lastDiscard = null;
+
+  const claimerHand = next.seats[seat].hand;
+  const taken: Tile[] = [];
+  for (let i = claimerHand.length - 1; i >= 0 && taken.length < 2; i--) {
+    if (claimerHand[i].suit === tile.suit && claimerHand[i].value === tile.value) {
+      taken.push(...claimerHand.splice(i, 1));
+    }
+  }
+  const meld: Meld = { type: 'peng', tiles: [tile, ...taken], fromSeat };
+  next.seats[seat].melds.push(meld);
+  next.phase = 'playing';
+  next.turn = seat;
+  next.claimWindow = null;
+  return next;
+}
+
+function resolveAllPass(state: GameState): GameState {
+  const next = clone(state);
+  const cw = next.claimWindow!;
+  next.claimWindow = null;
+  next.phase = 'playing';
+  const target = nextActiveSeat(next, cw.fromSeat);
+  if (!target) {
+    next.phase = 'settled';
+    return next;
+  }
+  next.turn = target;
+  if (!drawTileFor(next, target)) next.phase = 'settled';
+  checkTerminate(next);
+  return next;
 }
 
 export function declareSelfDrawHu(state: GameState, seat: Seat): ActionResult {
