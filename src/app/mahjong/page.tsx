@@ -6,6 +6,7 @@ import { useMahjongStore } from '@/lib/mahjong/store';
 import { RotatePrompt } from '@/components/mahjong/RotatePrompt';
 import { SeatPicker } from '@/components/mahjong/SeatPicker';
 import { ChooseMissing } from '@/components/mahjong/ChooseMissing';
+import { Table } from '@/components/mahjong/Table';
 
 export default function MahjongPage() {
   return (
@@ -23,7 +24,7 @@ export default function MahjongPage() {
 
 function MahjongShell() {
   const searchParams = useSearchParams();
-  const { me, setMe, state, gameEnded, subscribe, unsubscribe, fetchState } =
+  const { me, setMe, state, mySeat, gameEnded, subscribe, unsubscribe, fetchState } =
     useMahjongStore();
 
   useEffect(() => {
@@ -81,15 +82,8 @@ function MahjongShell() {
         {state.phase === 'choose-missing' && <ChooseMissing />}
         {(state.phase === 'playing' ||
           state.phase === 'claim-window' ||
-          state.phase === 'settled') && (
-          <div className="flex flex-col items-center gap-4 p-8">
-            <p className="text-sm text-gray-500 tracking-[0.2em] uppercase">
-              麻将 · {state.phase}
-            </p>
-            <p className="text-xs text-gray-600">
-              (Game table UI in Tasks 18–20)
-            </p>
-          </div>
+          state.phase === 'settled') && mySeat && (
+          <Table state={state} mySeat={mySeat} />
         )}
       </div>
     </>
