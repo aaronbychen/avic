@@ -4,8 +4,14 @@ import type {
   HumanName,
   PlayerState,
   Suit,
+  TileId,
+  HuResult,
+  WinType,
 } from './types';
+import { TURN_ORDER } from './types';
 import { buildWall, shuffle } from './tiles';
+import { canHu } from './hu';
+import { computeFan, chipsForFan } from './scoring';
 
 const ALL_SEATS: Seat[] = ['east', 'south', 'west', 'north'];
 
@@ -155,15 +161,136 @@ export function chooseMissing(state: GameState, seat: Seat, suit: Suit): ActionR
 
 export type Action =
   | { type: 'pick-seat'; seat: Seat; human: HumanName }
-  | { type: 'choose-missing'; seat: Seat; suit: Suit };
+  | { type: 'choose-missing'; seat: Seat; suit: Suit }
+  | { type: 'discard'; seat: Seat; tileId: TileId }
+  | { type: 'self-draw-hu'; seat: Seat };
 
 export function applyAction(state: GameState, action: Action): ActionResult {
   switch (action.type) {
     case 'pick-seat':      return pickSeat(state, action.seat, action.human);
     case 'choose-missing': return chooseMissing(state, action.seat, action.suit);
+    case 'discard':        return discard(state, action.seat, action.tileId);
+    case 'self-draw-hu':   return declareSelfDrawHu(state, action.seat);
     default: {
       const _: never = action;
       return { ok: false, error: 'unknown-action' };
     }
   }
+}
+
+
+// Find next seat in turn order that hasn't hu'd yet.
+function nextActiveSeat(state: GameState, from: Seat): Seat | null {
+  let cur = from;
+  for (let i = 0; i < 4; i++) {
+    const idx = TURN_ORDER.indexOf(cur);
+    cur = TURN_ORDER[(idx + 1) % 4];
+    if (!state.seats[cur].hasHu) return cur;
+  }
+  return null;
+}
+
+function activeSeatCount(state: GameState): number {
+  return ALL_SEATS.filter(s => !state.seats[s].hasHu).length;
+}
+
+// Pull next tile off the wall (top = end of array). Mutates state.
+function drawTileFor(state: GameState, seat: Seat): boolean {
+  const tile = state.wall.pop();
+  if (!tile) return false;
+  state.seats[seat].hand.push(tile);
+  state.wallCount = state.wall.length;
+  return true;
+}
+
+// Apply scoring deltas. Mutates state.
+function applyHuPayout(state: GameState, winnerSeat: Seat): void {
+  const winner = state.seats[winnerSeat];
+  const huResult = winner.huResult;
+  if (!huResult) return;
+  const chips = chipsForFan(huResult.fan);
+  if (huResult.selfDraw) {
+    for (const seat of ALL_SEATS) {
+      if (seat === winnerSeat) continue;
+      if (state.seats[seat].hasHu) continue;
+      state.seats[seat].score -= chips;
+      winner.score += chips;
+    }
+  } else if (huResult.fromSeat) {
+    state.seats[huResult.fromSeat].score -= chips;
+    winner.score += chips;
+  }
+}
+
+// Check whether the hand should terminate (≥3 hu OR ≤1 active seat OR wall empty).
+function checkTerminate(state: GameState): void {
+  if (state.huOrder.length >= 3 || activeSeatCount(state) <= 1) {
+    state.phase = 'settled';
+    return;
+  }
+  if (state.wallCount === 0 && state.phase === 'playing') {
+    state.phase = 'settled'; // 流局
+  }
+}
+
+export function discard(state: GameState, seat: Seat, tileId: TileId): ActionResult {
+  if (state.phase !== 'playing') return { ok: false, error: 'wrong-phase' };
+  if (state.turn !== seat) return { ok: false, error: 'not-your-turn' };
+  if (state.seats[seat].hasHu) return { ok: false, error: 'already-hu' };
+
+  const idx = state.seats[seat].hand.findIndex(t => t.id === tileId);
+  if (idx === -1) return { ok: false, error: 'tile-not-in-hand' };
+
+  const next = clone(state);
+  const [tile] = next.seats[seat].hand.splice(idx, 1);
+  next.seats[seat].discards.push(tile);
+  next.lastDiscard = { seat, tile };
+
+  // Task 8: no claim window yet — Task 9 will add it.
+  const target = nextActiveSeat(next, seat);
+  if (!target) {
+    next.phase = 'settled';
+    return { ok: true, state: bumpVersion(next) };
+  }
+  next.turn = target;
+  if (!drawTileFor(next, target)) {
+    next.phase = 'settled';
+  }
+  checkTerminate(next);
+  return { ok: true, state: bumpVersion(next) };
+}
+
+export function declareSelfDrawHu(state: GameState, seat: Seat): ActionResult {
+  if (state.phase !== 'playing') return { ok: false, error: 'wrong-phase' };
+  if (state.turn !== seat) return { ok: false, error: 'not-your-turn' };
+  if (state.seats[seat].hasHu) return { ok: false, error: 'already-hu' };
+
+  const player = state.seats[seat];
+  if (player.hand.length !== 14) return { ok: false, error: 'wrong-hand-size' };
+
+  const result = canHu(player.hand, player.melds, player.missingSuit);
+  if (!result.canHu) return { ok: false, error: 'cannot-hu' };
+
+  const next = clone(state);
+  const winningTile = next.seats[seat].hand[next.seats[seat].hand.length - 1];
+  const winTypes: WinType[] = result.winTypes;
+  const fan = computeFan(winTypes, true);
+  const huResult: HuResult = { winTypes, fan, selfDraw: true, winningTile, fromSeat: null };
+  next.seats[seat].hasHu = true;
+  next.seats[seat].huResult = huResult;
+  next.huOrder.push(seat);
+  applyHuPayout(next, seat);
+  checkTerminate(next);
+
+  if (next.phase !== 'settled') {
+    const target = nextActiveSeat(next, seat);
+    if (!target) {
+      next.phase = 'settled';
+    } else {
+      next.turn = target;
+      if (!drawTileFor(next, target)) next.phase = 'settled';
+      checkTerminate(next);
+    }
+  }
+  return { ok: true, state: bumpVersion(next) };
 }

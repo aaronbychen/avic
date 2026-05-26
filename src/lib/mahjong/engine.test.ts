@@ -125,3 +125,165 @@ describe('chooseMissing', () => {
     expect(r.error).toBe('wrong-phase');
   });
 });
+
+
+import { discard, declareSelfDrawHu } from './engine';
+import type { TileId } from './types';
+
+function startedGame(): GameState {
+  let s = initialState();
+  s = pickSeat(s, 'east', 'Aaron').state!;
+  s = pickSeat(s, 'south', 'Vicky').state!;
+  s = chooseMissing(s, 'east', 'tong').state!;
+  s = chooseMissing(s, 'south', 'tong').state!;
+  s = chooseMissing(s, 'west', 'tong').state!;
+  s = chooseMissing(s, 'north', 'tong').state!;
+  return s;
+}
+
+describe('discard (no claims)', () => {
+  it('removes the tile from the active player and advances turn counter-clockwise', () => {
+    let s = startedGame();
+    expect(s.turn).toBe('east');
+    expect(s.seats.east.hand.length).toBe(14);
+    const tileId: TileId = s.seats.east.hand[0].id;
+
+    const r = discard(s, 'east', tileId);
+    expect(r.ok).toBe(true);
+    s = r.state!;
+
+    // East has 13, discarded into east.discards
+    expect(s.seats.east.hand.length).toBe(13);
+    expect(s.seats.east.discards.length).toBe(1);
+    expect(s.seats.east.discards[0].id).toBe(tileId);
+    expect(s.lastDiscard).toEqual({ seat: 'east', tile: { id: tileId, suit: expect.anything(), value: expect.anything() } });
+    // Turn advances to north (counter-clockwise) and they draw
+    expect(s.turn).toBe('north');
+    expect(s.seats.north.hand.length).toBe(14);
+    expect(s.wallCount).toBe(54);
+    // Phase remains 'playing' (we'll add claim-window in Task 9)
+    expect(s.phase).toBe('playing');
+  });
+
+  it('rejects discard when not your turn', () => {
+    const s = startedGame();
+    const r = discard(s, 'south', s.seats.south.hand[0].id);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('not-your-turn');
+  });
+
+  it('rejects discard of a tile not in hand', () => {
+    const s = startedGame();
+    const r = discard(s, 'east', 'wan-1-99');
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('tile-not-in-hand');
+  });
+
+  it('rejects discard in wrong phase', () => {
+    const s = initialState();
+    const r = discard(s, 'east', 'wan-1-1');
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('wrong-phase');
+  });
+});
+
+describe('declareSelfDrawHu', () => {
+  it('rejects if hand cannot hu', () => {
+    const s = startedGame();
+    const r = declareSelfDrawHu(s, 'east');
+    // Random hand is unlikely to be a winning shape; assert error
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('cannot-hu');
+  });
+
+  it('accepts a forced winning hand and locks the player', () => {
+    let s = startedGame();
+    // Force east's hand to a known winning all-wan triplet shape.
+    const winningTiles = [
+      { id: 'wan-1-1', suit: 'wan' as const, value: 1 as const },
+      { id: 'wan-1-2', suit: 'wan' as const, value: 1 as const },
+      { id: 'wan-1-3', suit: 'wan' as const, value: 1 as const },
+      { id: 'wan-2-1', suit: 'wan' as const, value: 2 as const },
+      { id: 'wan-2-2', suit: 'wan' as const, value: 2 as const },
+      { id: 'wan-2-3', suit: 'wan' as const, value: 2 as const },
+      { id: 'wan-4-1', suit: 'wan' as const, value: 4 as const },
+      { id: 'wan-4-2', suit: 'wan' as const, value: 4 as const },
+      { id: 'wan-4-3', suit: 'wan' as const, value: 4 as const },
+      { id: 'wan-7-1', suit: 'wan' as const, value: 7 as const },
+      { id: 'wan-7-2', suit: 'wan' as const, value: 7 as const },
+      { id: 'wan-7-3', suit: 'wan' as const, value: 7 as const },
+      { id: 'wan-9-1', suit: 'wan' as const, value: 9 as const },
+      { id: 'wan-9-2', suit: 'wan' as const, value: 9 as const },
+    ];
+    s = { ...s, seats: { ...s.seats, east: { ...s.seats.east, hand: winningTiles } } };
+
+    const r = declareSelfDrawHu(s, 'east');
+    expect(r.ok).toBe(true);
+    s = r.state!;
+    expect(s.seats.east.hasHu).toBe(true);
+    expect(s.seats.east.huResult).not.toBeNull();
+    expect(s.seats.east.huResult!.selfDraw).toBe(true);
+    expect(s.huOrder).toEqual(['east']);
+    // Hand still in 'playing' (only 1 hu so far; need ≥3 to settle)
+    expect(s.phase).toBe('playing');
+    // Turn moves to next non-hu seat (north)
+    expect(s.turn).toBe('north');
+    // North should have drawn a tile (14)
+    expect(s.seats.north.hand.length).toBe(14);
+  });
+
+  it('terminates when 3 seats have hu (settles)', () => {
+    let s = startedGame();
+    // Pre-hu south and west to simulate two prior hands within this hand.
+    s = JSON.parse(JSON.stringify(s)) as GameState;
+    s.seats.south.hasHu = true;
+    s.seats.south.huResult = {
+      winTypes: ['ping-hu'], fan: 1, selfDraw: false,
+      winningTile: { id: 'wan-1-1', suit: 'wan', value: 1 },
+      fromSeat: 'east',
+    };
+    s.seats.west.hasHu = true;
+    s.seats.west.huResult = {
+      winTypes: ['ping-hu'], fan: 1, selfDraw: false,
+      winningTile: { id: 'wan-2-1', suit: 'wan', value: 2 },
+      fromSeat: 'east',
+    };
+    s.huOrder = ['south', 'west'];
+
+    // Force east's hand to a winning shape for self-draw.
+    const winningTiles = [
+      { id: 'wan-1-1', suit: 'wan' as const, value: 1 as const },
+      { id: 'wan-1-2', suit: 'wan' as const, value: 1 as const },
+      { id: 'wan-1-3', suit: 'wan' as const, value: 1 as const },
+      { id: 'wan-2-1', suit: 'wan' as const, value: 2 as const },
+      { id: 'wan-2-2', suit: 'wan' as const, value: 2 as const },
+      { id: 'wan-2-3', suit: 'wan' as const, value: 2 as const },
+      { id: 'wan-4-1', suit: 'wan' as const, value: 4 as const },
+      { id: 'wan-4-2', suit: 'wan' as const, value: 4 as const },
+      { id: 'wan-4-3', suit: 'wan' as const, value: 4 as const },
+      { id: 'wan-7-1', suit: 'wan' as const, value: 7 as const },
+      { id: 'wan-7-2', suit: 'wan' as const, value: 7 as const },
+      { id: 'wan-7-3', suit: 'wan' as const, value: 7 as const },
+      { id: 'wan-9-1', suit: 'wan' as const, value: 9 as const },
+      { id: 'wan-9-2', suit: 'wan' as const, value: 9 as const },
+    ];
+    s = { ...s, seats: { ...s.seats, east: { ...s.seats.east, hand: winningTiles } } };
+
+    const southBefore = s.seats.south.score;
+    const westBefore = s.seats.west.score;
+    const r = declareSelfDrawHu(s, 'east');
+    expect(r.ok).toBe(true);
+    s = r.state!;
+    // 3 seats hu now → settled
+    expect(s.huOrder).toEqual(['south', 'west', 'east']);
+    expect(s.phase).toBe('settled');
+    // Already-hu'd south and west do NOT pay east's self-draw
+    expect(s.seats.south.score).toBe(southBefore);
+    expect(s.seats.west.score).toBe(westBefore);
+    // North (the only active opponent) pays east
+    const fan = s.seats.east.huResult!.fan;
+    const chips = 2 ** fan;
+    expect(s.seats.north.score).toBe(-chips);
+    expect(s.seats.east.score).toBe(chips);
+  });
+});
