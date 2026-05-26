@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 // Mahjong is landscape-only. We only block portrait, and as a last-resort
 // block extremely tiny landscape viewports. iPhone 17 Pro landscape is ~874x402,
 // iPhone 17 Pro Max is ~956x440 — both must pass.
-const MIN_LANDSCAPE_HEIGHT = 360;
+const MIN_LANDSCAPE_HEIGHT = 200;
 
 export function RotatePrompt() {
   const [show, setShow] = useState(false);
