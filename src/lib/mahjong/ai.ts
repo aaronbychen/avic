@@ -93,3 +93,69 @@ function countPairsOrBetter(hand: readonly Tile[]): number {
   }
   return n;
 }
+
+
+// Cost-to-discard. Higher = drop first.
+const COST_MISSING_SUIT = 100;
+const COST_PAIR_OR_TRIPLET = -10;
+const COST_SEQUENCE_ADJACENT = -6;
+const COST_EDGE_TILE = 2;
+const COST_MIDDLE_TILE = -4;
+const COST_PER_PUBLIC_COPY_DISCARDED = 1;
+
+export function decideDiscard(state: GameState, seat: Seat): TileId {
+  const player = state.seats[seat];
+  if (player.hand.length === 0) {
+    throw new Error('decideDiscard called with empty hand');
+  }
+
+  // Count tiles in hand by face for pair-detection.
+  const handFaceCounts = new Map<string, number>();
+  for (const tt of player.hand) {
+    const k = `${tt.suit}-${tt.value}`;
+    handFaceCounts.set(k, (handFaceCounts.get(k) ?? 0) + 1);
+  }
+
+  // Count discarded copies (across all seats) per face.
+  const discardedFaceCounts = new Map<string, number>();
+  for (const s of ALL_SEATS) {
+    for (const tt of state.seats[s].discards) {
+      const k = `${tt.suit}-${tt.value}`;
+      discardedFaceCounts.set(k, (discardedFaceCounts.get(k) ?? 0) + 1);
+    }
+  }
+
+  let bestId: TileId = player.hand[0].id;
+  let bestCost = -Infinity;
+
+  for (const tile of player.hand) {
+    let cost = 0;
+
+    if (player.missingSuit && tile.suit === player.missingSuit) {
+      cost += COST_MISSING_SUIT;
+    }
+
+    const faceKey = `${tile.suit}-${tile.value}`;
+    const faceCountInHand = handFaceCounts.get(faceKey) ?? 1;
+    if (faceCountInHand >= 2) cost += COST_PAIR_OR_TRIPLET;
+
+    // Sequence-adjacency: any neighbor in the same suit?
+    const left = handFaceCounts.get(`${tile.suit}-${tile.value - 1}`) ?? 0;
+    const right = handFaceCounts.get(`${tile.suit}-${tile.value + 1}`) ?? 0;
+    if (left + right > 0) cost += COST_SEQUENCE_ADJACENT;
+
+    if (tile.value === 1 || tile.value === 9) cost += COST_EDGE_TILE;
+    if (tile.value >= 4 && tile.value <= 6) cost += COST_MIDDLE_TILE;
+
+    const publicCopies = discardedFaceCounts.get(faceKey) ?? 0;
+    cost += publicCopies * COST_PER_PUBLIC_COPY_DISCARDED;
+
+    if (cost > bestCost) {
+      bestCost = cost;
+      bestId = tile.id;
+    }
+  }
+  return bestId;
+}
+
+const ALL_SEATS: Seat[] = ['east', 'south', 'west', 'north'];

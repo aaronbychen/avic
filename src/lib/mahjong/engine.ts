@@ -620,7 +620,7 @@ export function totalTilesInPlay(state: GameState): number {
   return n;
 }
 
-import { decideClaim, decideMissingSuit, decideDiscardStub } from './ai';
+import { decideClaim, decideMissingSuit, decideDiscard } from './ai';
 
 const MAX_DRIVE_AI_ITERATIONS = 50;
 
@@ -709,7 +709,7 @@ export function driveAI(state: GameState): GameState {
         if (gangBuTaken) continue;
 
         // Discard
-        const tileId = decideDiscardStub(s, seat);
+        const tileId = decideDiscard(s, seat);
         const r = discard(s, seat, tileId);
         if (r.ok && r.state) { s = r.state; continue; }
         break;
@@ -717,7 +717,7 @@ export function driveAI(state: GameState): GameState {
 
       // After peng: hand size 13, discard
       if (player.hand.length === 13) {
-        const tileId = decideDiscardStub(s, seat);
+        const tileId = decideDiscard(s, seat);
         const r = discard(s, seat, tileId);
         if (r.ok && r.state) { s = r.state; continue; }
       }

@@ -107,3 +107,54 @@ describe('decideDiscardStub (Task 13 placeholder)', () => {
     expect(decideDiscardStub(s, 'east')).toBe('wan-1-1');
   });
 });
+
+
+import { decideDiscard } from './ai';
+
+describe('decideDiscard (heuristic)', () => {
+  it('always picks a missing-suit tile first (huge cost weight)', () => {
+    const s = baseState();
+    s.seats.east.hand = [
+      t('wan', 1, 1), t('wan', 1, 2),    // pair (low cost)
+      t('tong', 5, 1),                    // missing-suit (high cost)
+      t('tiao', 9, 1),                    // edge (slightly high cost)
+      t('tiao', 4, 1), t('tiao', 5, 1),   // sequential pair (low cost)
+    ];
+    s.seats.east.missingSuit = 'tong';
+    expect(decideDiscard(s, 'east')).toBe('tong-5-1');
+  });
+
+  it('prefers to discard isolated edge tiles over pairs and sequence-adjacents', () => {
+    const s = baseState();
+    s.seats.east.hand = [
+      t('wan', 1, 1),    // isolated edge — should be discarded
+      t('tiao', 4, 1), t('tiao', 5, 1), t('tiao', 6, 1),  // perfect run
+      t('tong', 5, 1), t('tong', 5, 2),                    // pair
+    ];
+    s.seats.east.missingSuit = null;
+    expect(decideDiscard(s, 'east')).toBe('wan-1-1');
+  });
+
+  it('prefers tiles that have already been discarded publicly (safer)', () => {
+    const s = baseState();
+    s.seats.east.hand = [
+      t('wan', 5, 1),   // 5wan: 0 already discarded publicly
+      t('wan', 8, 1),   // 8wan: 2 already discarded publicly — safer to drop
+    ];
+    s.seats.east.missingSuit = null;
+    s.seats.south.discards = [
+      t('wan', 8, 2), t('wan', 8, 3),
+    ];
+    expect(decideDiscard(s, 'east')).toBe('wan-8-1');
+  });
+
+  it('does not pick a missing-suit tile when none exist (safe fallback)', () => {
+    const s = baseState();
+    s.seats.east.hand = [
+      t('wan', 1, 1), t('wan', 5, 1),
+    ];
+    s.seats.east.missingSuit = 'tong';
+    const choice = decideDiscard(s, 'east');
+    expect(['wan-1-1', 'wan-5-1']).toContain(choice);
+  });
+});
