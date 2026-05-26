@@ -4,6 +4,7 @@ import type { PlayerState, Seat } from '@/lib/mahjong/types';
 import { Hand } from './Hand';
 import { Meld } from './Meld';
 import { Discards } from './Discards';
+import type { TileSize } from './Tile';
 
 interface SeatAreaProps {
   player: PlayerState;
@@ -13,6 +14,7 @@ interface SeatAreaProps {
   highlightLastDiscardId?: string | null;
   selectedTileId?: string | null;
   onTileClick?: (tileId: string) => void;
+  compact?: boolean;
 }
 
 const SEAT_LABEL_CN: Record<Seat, string> = {
@@ -30,6 +32,7 @@ export function SeatArea({
   highlightLastDiscardId,
   selectedTileId,
   onTileClick,
+  compact = false,
 }: SeatAreaProps) {
   const a = player.assignment;
   const displayName =
@@ -38,10 +41,19 @@ export function SeatArea({
   const indicatorColor = isActive ? 'text-[#d4af37]' : 'text-gray-400';
   const isVertical = position === 'left' || position === 'right';
 
+  // Tile sizes shrink one notch in compact mode.
+  const myHandSize: TileSize = compact ? 'md' : 'lg';
+  const theirHandSize: TileSize = compact ? 'xs' : 'sm';
+  const meldSize: TileSize = compact ? 'xs' : 'sm';
+  const discardSize: TileSize = compact ? 'xs' : 'sm';
+
+  const gapClass = compact ? 'gap-2' : 'gap-3';
+  const minWidthClass = isVertical ? (compact ? 'min-w-16' : 'min-w-24') : '';
+
   return (
     <div
       className={
-        'flex gap-3 ' +
+        `flex ${gapClass} ` +
         (position === 'top' ? 'flex-col-reverse items-center ' : '') +
         (position === 'bottom' ? 'flex-col items-center ' : '') +
         (position === 'left' ? 'flex-row-reverse items-center ' : '') +
@@ -49,15 +61,15 @@ export function SeatArea({
       }
     >
       {/* Identity row */}
-      <div className={'flex flex-col gap-1 ' + (isVertical ? 'min-w-24' : '')}>
-        <div className={'text-sm font-semibold ' + indicatorColor}>
+      <div className={`flex flex-col gap-1 ${minWidthClass}`}>
+        <div className={'text-xs sm:text-sm font-semibold ' + indicatorColor}>
           {displayName}
-          <span className="text-xs text-gray-500 ml-1">
+          <span className="text-[10px] sm:text-xs text-gray-500 ml-1">
             · {SEAT_LABEL_CN[player.seat]}
             {aiBadge}
           </span>
         </div>
-        <div className="text-xs text-gray-500 tabular-nums">
+        <div className="text-[10px] sm:text-xs text-gray-500 tabular-nums">
           分: <span className="text-gray-300">{player.score}</span>
         </div>
         {player.missingSuit && (
@@ -72,9 +84,9 @@ export function SeatArea({
 
       {/* Melds */}
       {player.melds.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
+        <div className={`flex ${compact ? 'gap-1' : 'gap-2'} flex-wrap`}>
           {player.melds.map((meld, i) => (
-            <Meld key={i} meld={meld} />
+            <Meld key={i} meld={meld} size={meldSize} />
           ))}
         </div>
       )}
@@ -83,7 +95,7 @@ export function SeatArea({
       <Hand
         tiles={player.hand}
         faceUp={isMe}
-        size={isMe ? 'lg' : 'sm'}
+        size={isMe ? myHandSize : theirHandSize}
         selectedId={selectedTileId}
         missingSuit={isMe ? player.missingSuit : null}
         onTileClick={
@@ -92,7 +104,11 @@ export function SeatArea({
       />
 
       {/* Discards */}
-      <Discards tiles={player.discards} highlightLastId={highlightLastDiscardId} />
+      <Discards
+        tiles={player.discards}
+        highlightLastId={highlightLastDiscardId}
+        size={discardSize}
+      />
     </div>
   );
 }

@@ -2,12 +2,12 @@
 
 import { useMemo } from 'react';
 import type { Suit, Tile as TileType } from '@/lib/mahjong/types';
-import { Tile } from './Tile';
+import { Tile, type TileSize } from './Tile';
 
 interface HandProps {
   tiles: TileType[];
   faceUp: boolean;
-  size?: 'sm' | 'md' | 'lg';
+  size?: TileSize;
   selectedId?: string | null;
   missingSuit?: Suit | null;
   onTileClick?: (tile: TileType) => void;
@@ -34,8 +34,9 @@ export function Hand({
   onTileClick,
 }: HandProps) {
   const sorted = useMemo(() => (faceUp ? sortTiles(tiles) : tiles), [tiles, faceUp]);
+  const gapClass = size === 'xs' || size === 'sm' ? 'gap-1' : 'gap-1.5';
   return (
-    <div className="flex gap-1.5 flex-wrap justify-center">
+    <div className={`flex ${gapClass} flex-wrap justify-center`}>
       {sorted.map((tile) => (
         <Tile
           key={tile.id}

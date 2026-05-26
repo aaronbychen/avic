@@ -1,11 +1,11 @@
 'use client';
 
 import type { Meld as MeldType } from '@/lib/mahjong/types';
-import { Tile } from './Tile';
+import { Tile, type TileSize } from './Tile';
 
 interface MeldProps {
   meld: MeldType;
-  size?: 'sm' | 'md';
+  size?: TileSize;
 }
 
 const TYPE_LABEL: Record<MeldType['type'], string> = {

@@ -80,7 +80,10 @@ function MahjongShell() {
       <RotatePrompt />
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#0a0a0a] text-gray-200">
         {state.phase === 'seat-selection' && <SeatPicker />}
-        {state.phase === 'choose-missing' && <ChooseMissing />}
+        {state.phase === 'choose-missing' && mySeat && (
+          <Table state={state} mySeat={mySeat} bottomSlot={<ChooseMissing />} />
+        )}
+        {state.phase === 'choose-missing' && !mySeat && <ChooseMissing />}
         {(state.phase === 'playing' ||
           state.phase === 'claim-window' ||
           state.phase === 'settled') && mySeat && (

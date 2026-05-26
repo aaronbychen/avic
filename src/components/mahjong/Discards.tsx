@@ -1,16 +1,17 @@
 'use client';
 
 import type { Tile as TileType } from '@/lib/mahjong/types';
-import { Tile } from './Tile';
+import { Tile, type TileSize } from './Tile';
 
 interface DiscardsProps {
   tiles: TileType[];
   highlightLastId?: string | null;
+  size?: TileSize;
 }
 
 const ROW_LENGTH = 8;
 
-export function Discards({ tiles, highlightLastId }: DiscardsProps) {
+export function Discards({ tiles, highlightLastId, size = 'sm' }: DiscardsProps) {
   const rows: TileType[][] = [];
   for (let i = 0; i < tiles.length; i += ROW_LENGTH) {
     rows.push(tiles.slice(i, i + ROW_LENGTH));
@@ -23,7 +24,7 @@ export function Discards({ tiles, highlightLastId }: DiscardsProps) {
             <Tile
               key={tile.id}
               tile={tile}
-              size="sm"
+              size={size}
               highlighted={highlightLastId === tile.id}
             />
           ))}

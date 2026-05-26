@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useMahjongStore } from '@/lib/mahjong/store';
+import { useCompactMode } from '@/lib/mahjong/useCompactMode';
 import type { Seat, Tile, TileValue } from '@/lib/mahjong/types';
 import { canHu } from '@/lib/mahjong/hu';
 
@@ -197,19 +198,21 @@ function ActionButton({
   variant: 'default' | 'gold' | 'muted' | 'disabled';
   onClick: () => void;
 }) {
+  const compact = useCompactMode();
   const styles: Record<typeof variant, string> = {
     default: 'bg-white/10 hover:bg-white/20 text-gray-200',
     gold: 'bg-[#d4af37] text-black hover:bg-[#e5c04b]',
     muted: 'bg-white/[0.04] text-gray-400 hover:bg-white/10',
     disabled: 'bg-white/[0.02] text-gray-600 cursor-not-allowed',
   };
+  const sizing = compact ? 'px-3 py-1.5 text-xs' : 'px-5 py-2 text-sm';
   return (
     <motion.button
       whileHover={{ scale: variant === 'disabled' ? 1 : 1.04 }}
       whileTap={{ scale: variant === 'disabled' ? 1 : 0.96 }}
       onClick={variant === 'disabled' ? undefined : onClick}
       className={
-        'px-5 py-2 rounded-xl text-sm font-semibold tracking-wider transition-colors ' +
+        `${sizing} rounded-xl font-semibold tracking-wider transition-colors ` +
         styles[variant]
       }
     >

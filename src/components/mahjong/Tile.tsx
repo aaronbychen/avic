@@ -20,9 +20,11 @@ const SUIT_COLOR: Record<TileType['suit'], string> = {
   tiao: '#f3e9d2',
 };
 
+export type TileSize = 'xs' | 'sm' | 'md' | 'lg';
+
 interface TileProps {
   tile?: TileType;
-  size?: 'sm' | 'md' | 'lg';
+  size?: TileSize;
   selected?: boolean;
   highlighted?: boolean;
   dimmed?: boolean;
@@ -30,7 +32,8 @@ interface TileProps {
   className?: string;
 }
 
-const SIZE_CLASSES = {
+const SIZE_CLASSES: Record<TileSize, string> = {
+  xs: 'w-6 h-8 text-lg',
   sm: 'w-8 h-11 text-2xl',
   md: 'w-10 h-14 text-3xl',
   lg: 'w-14 h-20 text-5xl',
