@@ -22,7 +22,7 @@ export function Table({ view }: { view: GameView }) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-3 px-4 py-3">
       <div className="flex items-center justify-between text-[11px] text-gray-500">
-        <span>21点 · 先赢 3 轮</span>
+        <span>21点</span>
         <button
           type="button"
           onClick={() => {
@@ -37,11 +37,6 @@ export function Table({ view }: { view: GameView }) {
       <PlayerArea player={opp} isMe={false} isTurn={view.turn === opp.name && view.phase === 'playing'} target={view.target} onTableTrump={setDetail} />
 
       <div className="flex flex-1 flex-col justify-center gap-2 py-1 text-center">
-        <div className="text-sm text-gray-400">
-          第 {view.round} 轮 · 第 {view.handNo} 局 · 目标{' '}
-          <span className={'font-bold ' + (view.target !== 21 ? 'text-amber-300' : 'text-gray-200')}>{view.target}</span> 点 · 牌组剩{' '}
-          {view.deckCount} 张
-        </div>
         <div className={'text-base font-semibold ' + (myTurn ? 'text-[#d4af37]' : 'text-gray-500')}>
           {view.phase !== 'playing' ? '本局结束' : myTurn ? '轮到你了' : `等待 ${view.opponent} 行动…`}
         </div>

@@ -2,13 +2,12 @@
 
 import { motion } from 'framer-motion';
 import { useTwentyOneStore } from '@/lib/twentyone/store';
-import type { GameView, PlayerName } from '@/lib/twentyone/types';
+import type { GameView } from '@/lib/twentyone/types';
 
 export function ResultPanel({ view }: { view: GameView }) {
   const { sendAction, pending } = useTwentyOneStore();
   const r = view.result;
   if (!r) return null;
-  const label = (p: PlayerName) => (p === view.me ? '我' : p);
   const matchOver = view.phase === 'match-over';
 
   let headline = '平局';
@@ -33,7 +32,7 @@ export function ResultPanel({ view }: { view: GameView }) {
           {([view.me, view.opponent] as const).map((p) => (
             <div key={p} className="flex items-center justify-between rounded-lg bg-white/[0.04] px-3 py-2">
               <span className={'text-sm ' + (r.winner === p ? 'text-[#d4af37] font-semibold' : 'text-gray-300')}>
-                {label(p)}
+                {p}
               </span>
               <span className="text-sm text-gray-400 tabular-nums">{r.cards[p].join(' + ')}</span>
               <span
@@ -48,7 +47,7 @@ export function ResultPanel({ view }: { view: GameView }) {
         </div>
         {r.winner && (
           <p className="mt-3 text-center text-sm text-gray-300">
-            {label(r.winner === view.me ? view.opponent : view.me)} 失去 {r.damage} 滴血
+            {r.winner === view.me ? view.opponent : view.me} 失去 {r.damage} 滴血
           </p>
         )}
         <button

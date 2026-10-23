@@ -21,7 +21,7 @@ export function PlayerArea({ player, isMe, isTurn, target, onTableTrump }: Playe
     <div className="flex items-center justify-between gap-2 text-sm">
       <div className="flex items-center gap-2">
         <span className={'font-semibold ' + (isTurn ? 'text-[#d4af37]' : 'text-gray-300')}>
-          {isMe ? '我' : player.name}
+          {player.name}
           {isTurn && ' ●'}
         </span>
         <span className="text-[#d4af37] tracking-tight">

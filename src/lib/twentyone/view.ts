@@ -37,7 +37,10 @@ export function toView(s: GameState, viewer: PlayerName): GameView {
     players,
     result: s.result,
     matchWinner: s.matchWinner,
-    log: s.log.slice(-VIEW_LOG_LIMIT).map((e) => {
+    log: s.log
+      .filter((e) => !e.selfOnly || e.actor === viewer)
+      .slice(-VIEW_LOG_LIMIT)
+      .map((e) => {
       const mine = e.actor === viewer;
       const text = mine ? (e.privateText ?? e.publicText) : e.publicText;
       const who = e.actor === null ? '' : mine ? '你' : `${e.actor} `;

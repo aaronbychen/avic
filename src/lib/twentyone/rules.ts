@@ -67,7 +67,7 @@ export interface UsabilityInput {
 
 // Reason a trump can't be played right now, or null if it can.
 export function trumpBlockReason({ def, ownTotal, target, ownTable, oppTable }: UsabilityInput): string | null {
-  if (oppTable.some((t) => t.id === 58)) return '对手的「破坏++」生效中，无法使用王牌';
+  if (oppTable.some((t) => t.id === 58)) return '「破坏++」生效中，无法使用王牌';
   if (def.kind === 'table' && ownTable.length >= TABLE_LIMIT) return `牌桌上最多只能摆 ${TABLE_LIMIT} 张王牌`;
   if (def.drawsNumber && ownTotal > target) return '点数爆掉之后就不能抽牌了';
   return null;

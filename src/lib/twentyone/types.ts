@@ -48,6 +48,8 @@ export interface LogEntry {
   publicText: string;
   // Shown to the actor; falls back to publicText.
   privateText?: string;
+  // Hidden from everyone except the actor.
+  selfOnly?: boolean;
 }
 
 export interface GameState {

@@ -326,6 +326,6 @@ describe('toView', () => {
     const mine = toView(s, 'Aaron').log.find((e) => e.actor === 'Aaron' && e.text.includes('获得'));
     const theirs = toView(s, 'Vicky').log.find((e) => e.actor === 'Aaron' && e.text.includes('获得'));
     expect(mine?.text).toContain('获得王牌：');
-    expect(theirs?.text).not.toContain('：');
+    expect(theirs).toBeUndefined();
   });
 });

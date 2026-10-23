@@ -25,8 +25,13 @@ function emptyPlayer(): PlayerState {
   return { hp: MAX_HP, roundsWon: 0, cards: [], table: [], hand: [] };
 }
 
-function log(s: GameState, actor: PlayerName | null, publicText: string, privateText?: string) {
-  s.log.push({ seq: s.nextSeq++, actor, publicText, privateText });
+function log(
+  s: GameState,
+  actor: PlayerName | null,
+  publicText: string,
+  opts: { privateText?: string; selfOnly?: boolean } = {},
+) {
+  s.log.push({ seq: s.nextSeq++, actor, publicText, ...opts });
   if (s.log.length > LOG_LIMIT) s.log.splice(0, s.log.length - LOG_LIMIT);
 }
 
@@ -53,10 +58,10 @@ function giveTrumps(s: GameState, p: PlayerName, n: number, rng: Rng) {
     got.push(TRUMPS[t.id].name);
   }
   if (got.length > 0) {
-    log(s, p, `获得 ${got.length} 张王牌`, `获得王牌：${got.join('、')}`);
+    log(s, p, `获得王牌：${got.join('、')}`, { selfOnly: true });
   }
   if (dropped > 0) {
-    log(s, p, `王牌已满，丢弃了 ${dropped} 张新王牌`);
+    log(s, p, `的王牌已满，丢弃了 ${dropped} 张新王牌`, { selfOnly: true });
   }
 }
 
@@ -94,7 +99,7 @@ function startHand(s: GameState, rng: Rng) {
   s.consecutiveStays = 0;
   s.result = null;
   s.phase = 'playing';
-  log(s, null, `第 ${s.round} 轮 · 第 ${s.handNo} 局开始，${s.firstPlayer} 先手`);
+  log(s, null, `${s.firstPlayer} 先手`);
   giveTrumps(s, s.firstPlayer, 1, rng);
   giveTrumps(s, other(s.firstPlayer), 1, rng);
 }
@@ -191,43 +196,44 @@ function playTrump(s: GameState, actor: PlayerName, uid: string, rng: Rng): stri
 
   const drawNumber = (value: number | undefined) => {
     if (value === undefined) {
-      log(s, actor, '牌组已空，王牌已丢弃');
+      log(s, null, '牌组已空，王牌已丢弃');
       return;
     }
     s.deck.splice(s.deck.indexOf(value), 1);
     addCard(me, value);
     log(s, actor, `抽到了 ${value}`);
   };
-  const returnLast = (p: PlayerState, who: string) => {
+  const returnLast = (name: PlayerName) => {
+    const p = s.players[name];
     const i = lastFaceUpIndex(p);
     if (i < 0) {
-      log(s, actor, `${who}没有面朝上的牌，王牌已丢弃`);
+      log(s, null, `${name} 没有面朝上的牌，王牌已丢弃`);
       return;
     }
     const [card] = p.cards.splice(i, 1);
     returnToDeck(s, card.value, rng);
-    log(s, actor, `${who}的 ${card.value} 被退回牌组`);
+    log(s, null, `${name} 的 ${card.value} 被退回牌组`);
   };
   const destroyAll = () => {
     if (opp.table.length === 0) {
-      log(s, actor, '对手牌桌上没有王牌');
+      log(s, null, `${oppName} 的牌桌上没有王牌`);
       return;
     }
-    log(s, actor, `撤除了对手的${opp.table.map((t) => `「${TRUMPS[t.id].name}」`).join('')}`);
+    log(s, actor, `撤除了 ${oppName} 的${opp.table.map((t) => `「${TRUMPS[t.id].name}」`).join('')}`);
     opp.table = [];
   };
 
   const specific = SPECIFIC_DRAW[trump.id];
   if (specific !== undefined) {
     if (s.deck.includes(specific)) drawNumber(specific);
-    else log(s, actor, `牌组中没有 ${specific}，王牌已丢弃`);
+    else log(s, null, `牌组中没有 ${specific}，王牌已丢弃`);
   } else {
     switch (trump.id) {
       case 12:
         giveTrumps(s, actor, 1, rng);
         break;
       case 13:
-        returnLast(opp, '对手');
+        returnLast(oppName);
         break;
       case 45:
       case 47:
@@ -245,7 +251,9 @@ function playTrump(s: GameState, actor: PlayerName, uid: string, rng: Rng): stri
           const [t] = me.hand.splice(randInt(rng, me.hand.length), 1);
           lost.push(TRUMPS[t.id].name);
         }
-        if (discard > 0) log(s, actor, `随机放弃了 ${discard} 张王牌`, `随机放弃了：${lost.join('、')}`);
+        if (discard > 0) {
+          log(s, actor, `随机放弃了 ${discard} 张王牌`, { privateText: `随机放弃了：${lost.join('、')}` });
+        }
         giveTrumps(s, actor, trump.id === 51 ? 3 : 4, rng);
         break;
       }
@@ -253,25 +261,25 @@ function playTrump(s: GameState, actor: PlayerName, uid: string, rng: Rng): stri
         const mi = lastFaceUpIndex(me);
         const oi = lastFaceUpIndex(opp);
         if (mi < 0 || oi < 0) {
-          log(s, actor, '没有可以交换的面朝上的牌，王牌已丢弃');
+          log(s, null, '没有可以交换的面朝上的牌，王牌已丢弃');
           break;
         }
         const mine = me.cards[mi].value;
         me.cards[mi].value = opp.cards[oi].value;
         opp.cards[oi].value = mine;
-        log(s, actor, `用 ${mine} 换走了对手的 ${me.cards[mi].value}`);
+        log(s, actor, `用 ${mine} 换走了 ${oppName} 的 ${me.cards[mi].value}`);
         break;
       }
       case 54:
-        returnLast(me, '自己');
+        returnLast(actor);
         break;
       case 55:
-        returnLast(opp, '对手');
+        returnLast(oppName);
         break;
       case 56: {
         const t = opp.table.pop();
-        if (t) log(s, actor, `撤除了对手的「${TRUMPS[t.id].name}」`);
-        else log(s, actor, '对手牌桌上没有王牌');
+        if (t) log(s, actor, `撤除了 ${oppName} 的「${TRUMPS[t.id].name}」`);
+        else log(s, null, `${oppName} 的牌桌上没有王牌`);
         break;
       }
       case 57:
