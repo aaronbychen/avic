@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyAction, newMatch } from './engine';
 import { mulberry32, type Rng } from './rng';
-import { bestCard, betOf, decideWinner, HAND_LIMIT, MAX_HP, ROUNDS_TO_WIN, targetOf } from './rules';
+import { bestCard, betOf, decideWinner, HAND_LIMIT, MAX_HP, ROUNDS_TO_WIN, START_TRUMPS, targetOf } from './rules';
 import { toView } from './view';
 import type { Action, GameState, PlayerName, Trump, TrumpId } from './types';
 
@@ -58,10 +58,10 @@ function values(s: GameState, p: PlayerName): number[] {
 }
 
 describe('newMatch', () => {
-  it('deals exactly 6 starting trumps and two cards each', () => {
+  it('deals only the opening trumps and two cards each', () => {
     const s = newMatch(mulberry32(7));
     for (const p of ['Aaron', 'Vicky'] as const) {
-      expect(s.players[p].hand).toHaveLength(6);
+      expect(s.players[p].hand).toHaveLength(START_TRUMPS);
       expect(s.players[p].cards).toHaveLength(2);
       expect(s.players[p].cards[0].faceUp).toBe(false);
       expect(s.players[p].cards[1].faceUp).toBe(true);

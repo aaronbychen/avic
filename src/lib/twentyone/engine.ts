@@ -100,7 +100,7 @@ function startHand(s: GameState, rng: Rng) {
   s.result = null;
   s.phase = 'playing';
   log(s, null, `${s.firstPlayer} 先手`);
-  // The match's first hand starts with just the 6 opening trumps.
+  // The match's first hand starts with just the opening trumps.
   if (s.handsPlayed > 1) {
     giveTrumps(s, s.firstPlayer, 1, rng);
     giveTrumps(s, other(s.firstPlayer), 1, rng);
@@ -125,7 +125,7 @@ export function newMatch(rng: Rng, version = 0): GameState {
     log: [],
     nextSeq: 1,
   };
-  log(s, null, '新的一场开始，双方各获得 6 张王牌');
+  log(s, null, `新的一场开始，双方各获得 ${START_TRUMPS} 张王牌`);
   giveTrumps(s, 'Aaron', START_TRUMPS, rng);
   giveTrumps(s, 'Vicky', START_TRUMPS, rng);
   startHand(s, rng);

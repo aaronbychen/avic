@@ -3,7 +3,7 @@ import type { NumberCard, PlayerName, Trump } from './types';
 
 export const MAX_HP = 10;
 export const ROUNDS_TO_WIN = 2;
-export const START_TRUMPS = 6;
+export const START_TRUMPS = 4;
 export const HAND_LIMIT = 10;
 export const TABLE_LIMIT = 5;
 export const DRAW_BONUS_CHANCE = 0.25;
