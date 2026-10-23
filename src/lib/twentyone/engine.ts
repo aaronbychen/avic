@@ -100,8 +100,11 @@ function startHand(s: GameState, rng: Rng) {
   s.result = null;
   s.phase = 'playing';
   log(s, null, `${s.firstPlayer} 先手`);
-  giveTrumps(s, s.firstPlayer, 1, rng);
-  giveTrumps(s, other(s.firstPlayer), 1, rng);
+  // The match's first hand starts with just the 6 opening trumps.
+  if (s.handsPlayed > 1) {
+    giveTrumps(s, s.firstPlayer, 1, rng);
+    giveTrumps(s, other(s.firstPlayer), 1, rng);
+  }
 }
 
 export function newMatch(rng: Rng, version = 0): GameState {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { TRUMPS } from './cards';
 import { applyAction, newMatch } from './engine';
 import { mulberry32, randInt, type Rng } from './rng';
-import { HAND_LIMIT, MAX_HP, TABLE_LIMIT, cardTotal, other, targetOf, trumpBlockReason } from './rules';
+import { HAND_LIMIT, MAX_HP, ROUNDS_TO_WIN, TABLE_LIMIT, cardTotal, other, targetOf, trumpBlockReason } from './rules';
 import { toView } from './view';
 import type { Action, GameState } from './types';
 
@@ -73,7 +73,7 @@ describe('random full matches', () => {
     for (let seed = 1; seed <= 50; seed++) {
       const s = playMatch(seed);
       expect(s.phase).toBe('match-over');
-      expect(s.matchWinner && s.players[s.matchWinner].roundsWon).toBe(3);
+      expect(s.matchWinner && s.players[s.matchWinner].roundsWon).toBe(ROUNDS_TO_WIN);
     }
   });
 });

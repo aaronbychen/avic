@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyAction, newMatch } from './engine';
 import { mulberry32, type Rng } from './rng';
-import { bestCard, betOf, decideWinner, HAND_LIMIT, MAX_HP, targetOf } from './rules';
+import { bestCard, betOf, decideWinner, HAND_LIMIT, MAX_HP, ROUNDS_TO_WIN, targetOf } from './rules';
 import { toView } from './view';
 import type { Action, GameState, PlayerName, Trump, TrumpId } from './types';
 
@@ -58,10 +58,10 @@ function values(s: GameState, p: PlayerName): number[] {
 }
 
 describe('newMatch', () => {
-  it('deals 6 starting trumps plus 1 for the first hand, and two cards each', () => {
+  it('deals exactly 6 starting trumps and two cards each', () => {
     const s = newMatch(mulberry32(7));
     for (const p of ['Aaron', 'Vicky'] as const) {
-      expect(s.players[p].hand).toHaveLength(7);
+      expect(s.players[p].hand).toHaveLength(6);
       expect(s.players[p].cards).toHaveLength(2);
       expect(s.players[p].cards[0].faceUp).toBe(false);
       expect(s.players[p].cards[1].faceUp).toBe(true);
@@ -155,7 +155,7 @@ describe('turn flow', () => {
     expect(unlucky.players.Aaron.hand).toHaveLength(0);
   });
 
-  it('caps the trump hand at 20', () => {
+  it('caps the trump hand at the limit', () => {
     const s = setup({ aaron: [2, 3], vicky: [4, 5], deck: [6], aaronHand: Array(HAND_LIMIT).fill(15) });
     const next = act(s, 'Aaron', { type: 'draw' }, () => 0.1);
     expect(next.players.Aaron.hand).toHaveLength(HAND_LIMIT);
@@ -179,9 +179,9 @@ describe('turn flow', () => {
     expect(s.players.Aaron.table).toEqual([]);
   });
 
-  it('ends the match at 3 rounds won', () => {
+  it('ends the match once a player wins enough rounds', () => {
     let s = setup({ aaron: [10, 9], vicky: [5, 6] });
-    s.players.Aaron.roundsWon = 2;
+    s.players.Aaron.roundsWon = ROUNDS_TO_WIN - 1;
     s.players.Vicky.hp = 1;
     s = act(s, 'Aaron', { type: 'stay' });
     s = act(s, 'Vicky', { type: 'stay' });
